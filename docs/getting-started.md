@@ -13,9 +13,15 @@ python3 -m http.server 8000   # from the jsLab root
 # open http://localhost:8000/demos/demo.html
 ```
 
-`demo.html` is the multi-VM demo (inline/worker toggle, add/stop VMs, per-VM
-console and a "Net up" button). `linux-distro.html` is the simpler single-VM
-page. `jslinux.html` is the legacy single-VM reference UI. All three are in `demos/`.
+`demo.html` is the multi-VM lab: add and remove VMs (in workers or on the main
+thread), each with an xterm.js console, its IP address, and buttons to bring its
+network up and to install and start `lan-chat.py`, a peer-to-peer chat between
+the VMs. `linux-distro.html` is the single-VM lab. Both are in `demos/` and use
+Bootstrap 6, Bootstrap Icons and xterm.js from jsDelivr.
+
+In the consoles, Ctrl+Shift+C (or Ctrl+C with text selected) copies,
+Ctrl+Shift+V or Shift+Insert pastes, and a right-click copies the selection or
+pastes. Ctrl+C with nothing selected goes to the guest.
 
 > **Assets:** the WASM engine (`engine/x86emu-wasm.js` + `.wasm`) comes from
 > `npm run fetch-engine`, but reaching a shell needs a kernel + rootfs image the

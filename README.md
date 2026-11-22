@@ -14,7 +14,7 @@ and resumed. Nothing runs on a server.
 | `lib/volumes/` | `VolumeManager`, 9P file volumes (`Fs9pStore`), copy-on-write block disks (`OverlayBlockStore`), storage backends (IndexedDB, OPFS, File System Access) |
 | `lib/network/` | the virtual network: devices, packets (Ethernet, IP, ARP, DHCP, UDP, ICMP), transports (BroadcastChannel, WebSocket relay) |
 | `lib/linux.js` | a simple single-VM bootstrap (xterm.js + the engine) |
-| `demos/` | `demo.html` (multi-VM), `linux-distro.html` (single VM), `jslinux.html` (legacy UI) |
+| `demos/` | the labs: `demo.html` (multi-VM), `linux-distro.html` (single VM); `terminal.js` (their xterm.js console), `distros.js` (the distro list), `lan-chat.py` (a peer-to-peer chat the multi-VM lab installs in its guests) |
 | `docs/` | [documentation](docs/README.md); `docs/runtime.md` is the architecture overview |
 | `engine/` | the TinyEMU engine, downloaded by `npm run fetch-engine` (not committed) |
 | `_distro/` | guest images staged by TinyEMU-distros (not committed) |

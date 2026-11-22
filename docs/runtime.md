@@ -62,10 +62,11 @@ internally). The main thread holds lightweight *handles* (`VM`) either way.
 jsLab/
 ├── index.html                 Landing page (links the demos).
 ├── demos/
-│   ├── demo.html              Multi-VM demo (inline/worker modes) — the current UI.
-│   ├── linux-distro.html      Single-VM page for a staged distro, no dependencies.
-│   └── jslinux.html           Legacy single-VM demo ("CTFLib Linux Playground"),
-│                              kept as a reference for the old vm-management UI.
+│   ├── demo.html              Multi-VM lab: VMs on one LAN, IPs, lan-chat.py.
+│   ├── linux-distro.html      Single-VM lab.
+│   ├── terminal.js            xterm.js console shared by the labs (copy/paste).
+│   ├── distros.js             Distro list: _distro/manifest.json or TinyEMU-distros.
+│   └── lan-chat.py            Peer-to-peer UDP broadcast chat, typed into guests.
 ├── lib/
 │   ├── linux.js               Simple single-VM bootstrap (xterm + Module.api).
 │   ├── vm/                    ✅ VM wrapper / manager.

@@ -1,130 +1,113 @@
 <!DOCTYPE html>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TinyEMU — Distro Boot</title>
+<title>jsLab · Single VM</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@6.0.0-alpha.1/dist/css/bootstrap.min.css" integrity="sha384-B/GM4XqrwHnWXNOWMbloTmrYXZg10cakYGmpfsR/bbzQ6JAJI4ihuyADKLnBgrCe" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css" integrity="sha384-nWN3KqaaVcbEsCjLSV+2jMjh62Iny/+mN3srM8TZeM8N6aj7eDl5wwYggjAJ4/sJ" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css" integrity="sha384-n2n7twoohnW+d3myBKaUgl7DSiwidw6MkQy9oesGzkPpMjejKRR3XlnD+5yCdtBD" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js" integrity="sha384-f/1U6Z9wM4D71a5eRXEZnyOTMOvjqxr2XLwh+Go1OvIl3L3tOcvUrzudnhbECwl4" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js" integrity="sha384-txoiwu4RR2GD3qySbaj+BbzibkLbSJRcfqGYMu6z1EqHil4A2dyBiBW5dlacG6OR" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.12.0/lib/addon-web-links.js" integrity="sha384-0IIwkXq0LAkIxEVKxlOxWbje2g/VT+5CzVTZiEukyiZ02pOl/O+M0fkpEKAYqto9" crossorigin="anonymous"></script>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #14161a; color: #e6e6e6; }
-  header { padding: 10px 14px; background: #1c1f26; border-bottom: 1px solid #2a2e37; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 14px; }
-  select, button { background: #23272f; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 5px; padding: 5px 8px; font: inherit; }
-  button { cursor: pointer; } button:hover { background: #2c313b; }
-  #spinner { color: #d8a24a; font-size: 12px; }
-  #term { margin: 0; padding: 8px 12px; height: calc(100vh - 150px); overflow: auto; white-space: pre-wrap;
-          word-break: break-all; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
-  #stdin { width: 100%; box-sizing: border-box; border: 0; border-top: 1px solid #2a2e37;
-           background: #16191e; color: #e6e6e6; padding: 8px 12px; font: 12px/1.35 ui-monospace, monospace; }
-  #status { padding: 6px 14px; color: #8a93a2; border-top: 1px solid #2a2e37; background: #1c1f26; font-size: 12px; }
+  #term { background: #0d1117; padding: 6px; }
+  #term .xterm { height: 100%; }
 </style>
 </head>
-<body>
-<header>
-  <h1>TinyEMU — Distro Boot</h1>
-  <label>distro <select id="distro"></select></label>
-  <button id="boot">Boot</button>
-  <span id="spinner" hidden>● downloading…</span>
-</header>
-<pre id="term"></pre>
-<input id="stdin" placeholder="click here and type → guest stdin (Enter sends newline)" disabled>
-<div id="status">Loading distro list…</div>
+<body class="d-flex flex-column vh-100 bg-body">
+<nav class="navbar bg-1 border-bottom px-3 gap-2 flex-wrap">
+  <a class="navbar-brand d-flex align-items-center gap-2" href="../index.html"><i class="bi bi-terminal"></i> jsLab · Single VM</a>
+  <select id="distro" class="form-control form-control-sm w-auto" aria-label="Distro" disabled>
+    <option>Loading distros…</option>
+  </select>
+  <button id="boot" class="btn btn-sm btn-solid theme-primary" disabled><i class="bi bi-power"></i> <span>Boot</span></button>
+  <span id="downloading" class="d-flex align-items-center gap-1 text-sm fg-3" hidden>
+    <span class="spinner-border spinner-sm" aria-hidden="true"></span> downloading
+  </span>
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <span id="ip" class="badge badge-subtle theme-secondary font-monospace" title="The guest's IPv4 address on the virtual LAN">no IP</span>
+    <span id="state" class="badge theme-secondary">idle</span>
+    <div class="btn-group" role="group" aria-label="Clipboard">
+      <button id="copy" class="btn btn-sm btn-icon btn-subtle theme-secondary" title="Copy selection (Ctrl+Shift+C)" aria-label="Copy selection"><i class="bi bi-copy"></i></button>
+      <button id="paste" class="btn btn-sm btn-icon btn-subtle theme-secondary" title="Paste (Ctrl+Shift+V)" aria-label="Paste"><i class="bi bi-clipboard"></i></button>
+    </div>
+  </div>
+</nav>
+<main class="flex-grow-1 p-2 min-h-0">
+  <div id="term" class="h-100 rounded border overflow-hidden"></div>
+</main>
+<footer id="status" class="px-3 py-1 border-top bg-1 text-sm fg-3">Loading the distro list…</footer>
 
-<script>
-// Self-contained single-VM distro boot: direct Module.api binding (js/lib.js),
-// no external deps (the sandbox blocks CDNs) — a <pre> console with light ANSI
-// stripping and a stdin line. Reads _distro/manifest.json (from stage-web.sh),
-// or TinyEMU-distros' published list when nothing is staged.
-const ROOT = new URL('../', location.href).href;   // jsLab's root: engine/, _distro/
-const sel = document.getElementById('distro');
-const term = document.getElementById('term');
-const stdinEl = document.getElementById('stdin');
-const statusEl = document.getElementById('status');
-const spinner = document.getElementById('spinner');
-let booted = false;
+<script type="module">
+// One VM in a Web Worker (lib/vm), its console in xterm.js (terminal.js), the
+// distro list from _distro/manifest.json or TinyEMU-distros (distros.js).
+import { VMManager } from '../lib/vm/index.js';
+import { createTerminal } from './terminal.js';
+import { loadDistros } from './distros.js';
 
-// Strip the escape sequences a bare <pre> can't render (CSI ... final byte, plus
-// a few common single-char ESC codes), so the boot log stays readable.
-function stripAnsi(s) {
-  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b[()][0-9A-Za-z]/g, '')
-          .replace(/\x1b[=>]/g, '').replace(/[\x00\x07]/g, '');
+const ROOT = new URL('../', location.href);   // jsLab's root: engine/, _distro/
+const $ = (id) => document.getElementById(id);
+const sel = $('distro'), bootBtn = $('boot'), statusEl = $('status');
+const STATE_THEME = { starting: 'warning', running: 'success', paused: 'secondary', stopped: 'secondary', error: 'danger' };
+
+const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+window.mgr = mgr;   // for console poking
+let vm = null;
+
+const t = createTerminal($('term'), { onData: (d) => vm?.sendInput(d) });
+new ResizeObserver(() => t.fit()).observe($('term'));
+$('copy').onclick = () => t.copy().then((ok) => { if (!ok) statusEl.textContent = 'Select some text in the console first.'; });
+$('paste').onclick = () => t.paste();
+
+function setState(s) {
+  const el = $('state');
+  el.textContent = s;
+  el.className = `badge theme-${STATE_THEME[s] || 'secondary'}`;
 }
-const utf8 = new TextDecoder();
-function write(s) { if (typeof s !== 'string') s = utf8.decode(s, { stream: true });
-  const atEnd = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
-  term.textContent += stripAnsi(s); if (atEnd) term.scrollTop = term.scrollHeight; }
-
-// The distro list: _distro/manifest.json if distros are staged locally, else the
-// x86 distros TinyEMU-distros publishes on its Pages (this is the x86 engine).
-// A local manifest's configs are relative to jsLab's root, a published one's to itself.
-const PUBLISHED = 'https://gramthanos.github.io/TinyEMU-distros/manifest.json';
-async function fetchManifest(url) {
-  const r = await fetch(url, { cache: 'no-cache' });
-  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-  return (await r.json()).distros || [];
+function setIP(ip) {
+  const el = $('ip');
+  el.textContent = ip || 'no IP';
+  el.className = `badge badge-subtle font-monospace theme-${ip ? 'info' : 'secondary'}`;
 }
-async function loadManifest() {
-  let list, rel = ROOT;
-  try { list = await fetchManifest(ROOT + '_distro/manifest.json'); }
-  catch (_) {
-    try { list = (await fetchManifest(PUBLISHED)).filter((d) => d.arch === 'x86'); rel = PUBLISHED; }
-    catch (_) { statusEl.textContent = 'No distro list: stage one with TinyEMU-distros’ scripts/stage-web.sh.'; return false; }
-  }
-  for (const d of list) {
+
+async function boot() {
+  if (vm) { await mgr.destroy(vm.id); vm = null; }
+  t.term.reset();
+  setIP(null);
+  const { cols, rows } = t.fit();
+  const name = sel.selectedOptions[0].textContent;
+  vm = await mgr.create('vm', { configUrl: sel.value, mode: 'worker', memoryMB: 256, hasNetwork: true, cols, rows });
+  vm.onConsole((b) => t.write(b));
+  vm.onState(setState);
+  vm.onAddress(setIP);
+  vm.on('downloading', (on) => { $('downloading').hidden = !on; });
+  vm.onError((e) => { statusEl.textContent = `Error: ${e.message}`; });
+  bootBtn.querySelector('span').textContent = 'Reboot';
+  bootBtn.querySelector('i').className = 'bi bi-arrow-clockwise';
+  statusEl.textContent = `Booting ${name}… (to a shell in about 20 s; for networking, run: udhcpc -i eth0)`;
+  try { await vm.start(); statusEl.textContent = `${name} is running. Copy: Ctrl+Shift+C or right-click; paste: Ctrl+Shift+V or right-click.`; }
+  catch (e) { statusEl.textContent = `Start failed: ${e.message}`; }
+  t.focus();
+}
+bootBtn.onclick = boot;
+
+try {
+  const { source, distros } = await loadDistros(ROOT);
+  sel.replaceChildren(...distros.map((d) => {
     const o = document.createElement('option');
-    o.value = d.url || new URL(d.config, rel).href; o.textContent = `${d.name} (${d.arch})`; o.title = d.description || '';
-    sel.appendChild(o);
-  }
-  if (!sel.options.length) { statusEl.textContent = 'No distros staged (run scripts/stage-web.sh <name> <jsLab dir> in TinyEMU-distros).'; return false; }
-  statusEl.textContent = `${sel.options.length} distro(s)${rel === PUBLISHED ? ' from TinyEMU-distros' : ''}. Click Boot.`; return true;
+    o.value = d.url; o.textContent = `${d.name} (${d.arch})`; o.title = d.description;
+    return o;
+  }));
+  if (!distros.length) throw new Error('the list is empty');
+  sel.disabled = false; bootBtn.disabled = false;
+  statusEl.textContent = `${distros.length} distro(s)${source === 'published' ? ' from TinyEMU-distros' : ' staged in _distro/'}.`;
+  boot();   // boot the first distro straight away
+} catch (e) {
+  sel.replaceChildren(new Option('no distros'));
+  statusEl.textContent = `No distro list (${e.message}): stage one with TinyEMU-distros’ scripts/stage-web.sh.`;
 }
-
-function boot() {
-  if (booted) { location.reload(); return; }   // global Module → one VM per page
-  booted = true;
-  const config = sel.value;
-  statusEl.textContent = `Booting ${sel.selectedOptions[0].textContent}…`;
-
-  const wgetRequests = (function () { const t = {}; let n = 1;
-    return { new(h){ const k = n++; t[k] = h; return k; }, remove(k){ delete t[k]; }, instance: t }; })();
-
-  let queueChar = null;
-  window.Module = {
-    noExitRuntime: true,
-    locateFile: (p) => p.endsWith('.wasm') ? ROOT + 'engine/x86emu-wasm.wasm' : p,
-    api: {
-      terminal: { write, getSize: () => [80, 25] },
-      downloading: { update: (on) => { spinner.hidden = !on; } },
-      wgetRequests, export_file: () => {}, net: null, display: null,
-    },
-    onRuntimeInitialized() {
-      queueChar = Module.cwrap('console_queue_char', null, ['number']);
-      stdinEl.disabled = false;
-      try {
-        Module.ccall('vm_start', null,
-          ['string','number','string','string','number','number','number'],
-          [config, 128, '', null, 0, 0, 0]);
-        statusEl.textContent = 'Running. Click the console/input and type.';
-      } catch (e) { statusEl.textContent = 'vm_start error: ' + e; write('\n[vm_start error] ' + e + '\n'); }
-    },
-  };
-  stdinEl.addEventListener('keydown', (e) => {
-    if (!queueChar) return;
-    if (e.key === 'Enter') { queueChar(10); e.preventDefault(); }
-    else if (e.key.length === 1) { queueChar(e.key.charCodeAt(0)); e.preventDefault(); }
-    else if (e.key === 'Backspace') { queueChar(127); e.preventDefault(); }
-    else if (e.key === 'Tab') { queueChar(9); e.preventDefault(); }
-  });
-
-  const s = document.createElement('script');
-  s.src = ROOT + 'engine/x86emu-wasm.js';
-  s.onerror = () => { statusEl.textContent = 'failed to load emulator bundle'; };
-  document.body.appendChild(s);
-}
-
-document.getElementById('boot').onclick = boot;
-(async () => { if (await loadManifest()) boot(); })();   // auto-boot the first distro
 </script>
 </body>
 </html>

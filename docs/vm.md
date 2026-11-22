@@ -56,7 +56,8 @@ Passed to `mgr.create(id, config)`:
 | `configUrl` | — | TinyEMU `.cfg` (kernel + fs0 + eth0). Resolved to **absolute** (a relative URL aborts in the C loader). |
 | `mode` | `'worker'` | `'worker'` (off the UI thread, clean stop) or `'inline'` (many VMs, one thread, no worker needed). |
 | `memoryMB` | `256` | Guest RAM. |
-| `cmdline` | `''` | Extra kernel cmdline. |
+| `cmdline` | `''` | Extra kernel cmdline, appended to the `.cfg`'s. |
+| `napiTxFix` | `true` | With `hasNetwork`, appends `virtio_net.napi_tx=0` to the kernel cmdline. TinyEMU's virtio rings hold 16 buffers, fewer than the 19 free slots Linux's NAPI transmit path waits for, so without it the guest sends one frame and then nothing. `false` leaves the cmdline alone. |
 | `hasNetwork` | — | `true` bridges the NIC to the `VirtualNetwork` and raises carrier. |
 | `cols`, `rows` | `80×24` | Console size reported to the guest. |
 | `width`, `height` | `0` | Framebuffer size (graphics builds). |
@@ -87,10 +88,19 @@ are on an older bundle — see [WASM runtime § Rebuilding](./wasm-runtime.md#re
 ### I/O
 
 ```js
-vm.sendInput('ls -la\n');       // string or Uint8Array → guest stdin
+vm.sendInput('ls -la\n');       // string (sent as UTF-8) or Uint8Array → guest stdin
 vm.resize(cols, rows);          // update reported console size
 vm.deliverFrame(frame);         // inject a net frame INTO the guest (used by the bridge)
+vm.ip;                          // the guest's IPv4 address once seen, else null
 ```
+
+TinyEMU's console input buffer holds 1 KiB and drops the rest, so `sendInput`
+queues its bytes and hands them over 128 at a time every 20 ms: a long paste or
+a file typed into the guest arrives whole, at about 6 KB/s.
+
+`vm.ip` comes from the VM's network bridge: the DHCP ACK the JS router sends the
+guest, or the source address of the guest's own IPv4 traffic (a static address).
+A new address replaces the old one.
 
 ### Events
 
@@ -103,6 +113,7 @@ Register with `vm.on(event, cb)` (returns an unsubscribe fn) or the shorthands:
 | `onNetTx(cb)` | `net-tx` | `Uint8Array` (frame the guest transmitted) |
 | `onLog(cb)` | `log` | `{ level, text }` |
 | `onError(cb)` | `error` | `Error` |
+| `onAddress(cb)` | `address` | `string`: the guest's IPv4 address, when first seen or changed |
 | — | `downloading` | `boolean` (asset-fetch indicator) |
 | — | `export-file` | `{ name, file, url }` (guest wrote a file out) |
 

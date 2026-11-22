@@ -1,162 +1,232 @@
 <!DOCTYPE html>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TinyEMU Multi-VM Demo</title>
+<title>jsLab · Multi-VM</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@6.0.0-alpha.1/dist/css/bootstrap.min.css" integrity="sha384-B/GM4XqrwHnWXNOWMbloTmrYXZg10cakYGmpfsR/bbzQ6JAJI4ihuyADKLnBgrCe" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css" integrity="sha384-nWN3KqaaVcbEsCjLSV+2jMjh62Iny/+mN3srM8TZeM8N6aj7eDl5wwYggjAJ4/sJ" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css" integrity="sha384-n2n7twoohnW+d3myBKaUgl7DSiwidw6MkQy9oesGzkPpMjejKRR3XlnD+5yCdtBD" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js" integrity="sha384-f/1U6Z9wM4D71a5eRXEZnyOTMOvjqxr2XLwh+Go1OvIl3L3tOcvUrzudnhbECwl4" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js" integrity="sha384-txoiwu4RR2GD3qySbaj+BbzibkLbSJRcfqGYMu6z1EqHil4A2dyBiBW5dlacG6OR" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.12.0/lib/addon-web-links.js" integrity="sha384-0IIwkXq0LAkIxEVKxlOxWbje2g/VT+5CzVTZiEukyiZ02pOl/O+M0fkpEKAYqto9" crossorigin="anonymous"></script>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #14161a; color: #e6e6e6; }
-  header { padding: 10px 14px; background: #1c1f26; border-bottom: 1px solid #2a2e37; }
-  header h1 { margin: 0 0 6px; font-size: 15px; }
-  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .controls input, .controls select, .controls button {
-    background: #23272f; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 5px;
-    padding: 5px 8px; font: inherit;
-  }
-  .controls button { cursor: pointer; }
-  .controls button:hover { background: #2c313b; }
-  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; padding: 10px; }
-  .vm { background: #1a1d23; border: 1px solid #2a2e37; border-radius: 8px; overflow: hidden; }
-  .vm .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #21252d; border-bottom: 1px solid #2a2e37; }
-  .vm .bar .id { font-weight: 600; }
-  .vm .bar .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #333; }
-  .badge.running { background: #1f6f3f; } .badge.starting { background: #7a5c1e; }
-  .badge.error { background: #7a2020; } .badge.stopped, .badge.paused { background: #4a4a4a; }
-  .vm .bar .mac { color: #8a93a2; font-size: 11px; margin-left: auto; }
-  .vm .bar button { background: #2a2f38; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
-  .vm pre { margin: 0; padding: 8px 10px; height: 260px; overflow: auto; white-space: pre-wrap;
-            word-break: break-all; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
-  .vm input.stdin { width: 100%; box-sizing: border-box; border: 0; border-top: 1px solid #2a2e37;
-                    background: #16191e; color: #e6e6e6; padding: 6px 10px; font: inherit; }
-  #status { padding: 6px 14px; color: #8a93a2; border-top: 1px solid #2a2e37; background: #1c1f26; font-size: 12px; }
+  .vm-term { height: 380px; background: #0d1117; padding: 6px; }
+  .vm-term .xterm { height: 100%; }
+  #empty { max-width: 36rem; }
 </style>
 </head>
-<body>
-<header>
-  <h1>TinyEMU Multi-VM Demo — closure-isolated instances</h1>
-  <div class="controls">
-    <label>distro <select id="distro"><option value="">(custom)</option></select></label>
-    <label>config <input id="cfg" value="alpine-x86.cfg" size="26"></label>
-    <label>mode
-      <select id="mode"><option value="inline">inline (main thread)</option>
-      <option value="worker">worker</option></select>
-    </label>
-    <label>mem <input id="mem" type="number" value="256" style="width:70px"> MB</label>
-    <button id="add">+ Add VM</button>
-    <button id="stopall">Stop all</button>
+<body class="d-flex flex-column min-vh-100 bg-body">
+<nav class="navbar bg-1 border-bottom px-3 gap-2 flex-wrap">
+  <a class="navbar-brand d-flex align-items-center gap-2" href="../index.html"><i class="bi bi-diagram-3"></i> jsLab · Multi-VM</a>
+  <select id="distro" class="form-control form-control-sm w-auto" aria-label="Distro">
+    <option value="">Loading distros…</option>
+    <option value="custom">Custom config URL…</option>
+  </select>
+  <input id="cfg" class="form-control form-control-sm w-auto" size="40" placeholder="https://…/config.cfg" aria-label="Config URL" hidden>
+  <select id="mode" class="form-control form-control-sm w-auto" aria-label="Where the VM runs" title="Where the VM runs">
+    <option value="worker">worker thread</option>
+    <option value="inline">main thread</option>
+  </select>
+  <div class="input-group input-group-sm w-auto" title="Guest memory">
+    <span class="input-group-text"><i class="bi bi-memory"></i></span>
+    <input id="mem" type="number" class="form-control" value="256" min="32" step="32" style="width: 5.5rem" aria-label="Memory in MB">
+    <span class="input-group-text">MB</span>
   </div>
-</header>
-<div id="grid"></div>
-<div id="status">Ready. Each VM is an isolated Module produced by EmulatorFactory — no rebuild, no singleton.</div>
+  <div class="btn-group" role="group" aria-label="Lab">
+    <button id="add" class="btn btn-sm btn-icon btn-solid theme-primary" title="Add a VM" aria-label="Add a VM"><i class="bi bi-plus-lg"></i></button>
+    <button id="stopall" class="btn btn-sm btn-icon btn-subtle theme-danger" title="Remove all VMs" aria-label="Remove all VMs"><i class="bi bi-trash3"></i></button>
+  </div>
+  <span id="lan" class="ms-auto badge badge-subtle theme-info font-monospace" title="The virtual LAN: subnet, then VMs and DHCP leases">10.0.2.0/24</span>
+</nav>
+
+<main class="flex-grow-1 container-fluid py-3">
+  <div id="empty" class="mx-auto text-center fg-3 py-5">
+    <i class="bi bi-hdd-network" style="font-size: 2.5rem"></i>
+    <p class="mt-2">Every VM joins one virtual LAN (10.0.2.0/24, DHCP from 10.0.2.2).
+      Add two or more with <i class="bi bi-plus-lg"></i>, bring each one's network up with
+      <i class="bi bi-ethernet"></i>, then start the chat on each with <i class="bi bi-chat-dots"></i>.</p>
+  </div>
+  <div id="grid" class="row g-3"></div>
+</main>
+<footer id="status" class="px-3 py-1 border-top bg-1 text-sm fg-3">Ready.</footer>
 
 <script type="module">
+// Several VMs on one VirtualNetwork (lib/vm, lib/network), each console in
+// xterm.js (terminal.js), the distro list from distros.js.
 import { VMManager } from '../lib/vm/index.js';
+import { createTerminal } from './terminal.js';
+import { loadDistros } from './distros.js';
 
 const ROOT = new URL('../', location.href);   // jsLab's root: engine/, _distro/
+const CHAT_URL = new URL('lan-chat.py', location.href);
+const $ = (id) => document.getElementById(id);
+const status = (text) => { $('status').textContent = text; };
+const STATE_THEME = { starting: 'warning', running: 'success', paused: 'secondary', stopped: 'secondary', error: 'danger' };
 
-const dec = new TextDecoder();
 const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
 window.mgr = mgr;   // for console poking
 let n = 0;
 
-const status = document.getElementById('status');
-const grid = document.getElementById('grid');
+// Up the link, then ask the JS DHCP server for a lease (busybox udhcpc).
+const NET_UP = 'ip link set eth0 up && udhcpc -i eth0 -q -n -t 5\n';
 
-function card(id, mac) {
-  const el = document.createElement('div');
-  el.className = 'vm';
-  el.innerHTML = `
-    <div class="bar">
-      <span class="id">${id}</span>
-      <span class="badge starting" data-badge>starting</span>
-      <button data-netup title="Send 'udhcpc -i eth0' to the guest to obtain a lease from the JS DHCP server">Net up</button>
-      <button data-pause>Pause</button>
-      <button data-stop>Stop</button>
-      <span class="mac">${mac}</span>
-    </div>
-    <pre data-out></pre>
-    <input class="stdin" placeholder="type here → guest stdin (Enter to send)">`;
-  grid.appendChild(el);
-  return el;
+function updateLan() {
+  const leases = mgr.network.getDHCPServer()?.getStats().leases ?? 0;
+  $('lan').textContent = `10.0.2.0/24 · ${mgr.vms.size} VM${mgr.vms.size === 1 ? '' : 's'} · ${leases} lease${leases === 1 ? '' : 's'}`;
+  $('empty').hidden = mgr.vms.size > 0;
+}
+
+function iconButton(icon, label, theme = 'secondary') {
+  const b = document.createElement('button');
+  b.className = `btn btn-sm btn-icon btn-subtle theme-${theme}`;
+  b.title = label; b.setAttribute('aria-label', label);
+  b.innerHTML = `<i class="bi bi-${icon}"></i>`;
+  return b;
+}
+
+function card(id) {
+  const col = document.createElement('div');
+  col.className = 'col-12 lg:col-6';
+  col.innerHTML = `
+    <div class="card h-100">
+      <div class="card-header d-flex flex-row align-items-center gap-2 flex-wrap text-start">
+        <i class="bi bi-pc-display"></i>
+        <span class="fw-semibold">${id}</span>
+        <span class="badge theme-warning" data-state>starting</span>
+        <span class="badge badge-subtle theme-secondary font-monospace" data-ip title="IPv4 address (click to copy)" role="button">no IP</span>
+        <span class="text-xs fg-3 font-monospace" data-mac title="MAC address"></span>
+        <div class="btn-toolbar gap-1 ms-auto" data-tools></div>
+      </div>
+      <div class="vm-term" data-term></div>
+    </div>`;
+  $('grid').appendChild(col);
+  return col;
 }
 
 async function addVM() {
   const id = 'vm' + (++n);
-  const configUrl = document.getElementById('cfg').value.trim();
-  const mode = document.getElementById('mode').value;
-  const memoryMB = parseInt(document.getElementById('mem').value, 10) || 256;
+  const choice = $('distro').value;
+  const configUrl = choice === 'custom' ? $('cfg').value.trim() : choice;
+  if (!configUrl) { status('Pick a distro, or enter a config URL.'); n--; return; }
+  const mode = $('mode').value;
+  const memoryMB = parseInt($('mem').value, 10) || 256;
 
-  let vm;
+  const col = card(id);
+  const q = (sel) => col.querySelector(sel);
+  let vm = null;
+  const t = createTerminal(q('[data-term]'), { onData: (d) => vm?.sendInput(d) });
+  const { cols, rows } = t.fit();
+
   try {
-    vm = await mgr.create(id, { configUrl, mode, memoryMB, hasNetwork: true, cols: 80, rows: 24 });
-  } catch (e) { status.textContent = `create ${id} failed: ${e.message}`; return; }
+    vm = await mgr.create(id, { configUrl, mode, memoryMB, hasNetwork: true, cols, rows });
+  } catch (e) { col.remove(); status(`create ${id} failed: ${e.message}`); return; }
+  updateLan();
 
-  const el = card(id, vm.mac);
-  const out = el.querySelector('[data-out]');
-  const badge = el.querySelector('[data-badge]');
-  const stdin = el.querySelector('.stdin');
+  // Console → xterm, unless a file transfer holds it back (installChat).
+  let hold = null;
+  const dec = new TextDecoder();
+  vm.onConsole((b) => { if (hold) hold(b, dec.decode(b, { stream: true })); else t.write(b); });
 
-  vm.onConsole(b => { out.textContent += dec.decode(b, { stream: true }); out.scrollTop = out.scrollHeight; });
-  vm.onState(s => { badge.textContent = s; badge.className = 'badge ' + s; });
-  vm.onLog(({ level, text }) => { if (level === 'err') console.warn(`[${id}]`, text); });
-  vm.onError(e => { status.textContent = `${id} error: ${e.message}`; });
-
-  stdin.addEventListener('keydown', ev => {
-    if (ev.key === 'Enter') { vm.sendInput(stdin.value + '\n'); stdin.value = ''; ev.preventDefault(); }
+  const stateEl = q('[data-state]'), ipEl = q('[data-ip]');
+  q('[data-mac]').textContent = vm.mac;
+  vm.onState((s) => {
+    stateEl.textContent = s; stateEl.className = `badge theme-${STATE_THEME[s] || 'secondary'}`;
+    pauseBtn.innerHTML = `<i class="bi bi-${s === 'paused' ? 'play-fill' : 'pause-fill'}"></i>`;
+    pauseBtn.title = s === 'paused' ? 'Resume' : 'Pause';
   });
-  el.querySelector('[data-stop]').onclick = () => mgr.destroy(id);
-  // Guests booted with init=/bin/sh don't auto-configure the NIC, so the JS
-  // DHCP/switch layer stays idle. Nudge the guest to request a lease.
-  el.querySelector('[data-netup]').onclick = () => {
-    vm.sendInput('udhcpc -i eth0 2>/dev/null || ip link set eth0 up\n');
-    status.textContent = `${id}: requested DHCP lease (udhcpc). Watch the console.`;
-  };
-  el.querySelector('[data-pause]').onclick = async (e) => {
-    if (vm.state === 'paused') { await vm.resume(); }
-    else { const ok = await vm.pause(); if (!ok) status.textContent = `${id}: pause needs C vm_pause (see plan-c-changes.md)`; }
-  };
+  vm.onAddress((ip) => {
+    ipEl.textContent = ip;
+    ipEl.className = 'badge badge-subtle theme-info font-monospace';
+    status(`${id} has address ${ip}.`);
+    updateLan();
+  });
+  ipEl.onclick = () => vm.ip && navigator.clipboard.writeText(vm.ip).then(() => status(`Copied ${vm.ip}.`), () => {});
+  vm.onLog(({ level, text }) => { if (level === 'err') console.warn(`[${id}]`, text); });
+  vm.onError((e) => status(`${id} error: ${e.message}`));
 
-  status.textContent = `${id} starting (${mode})…`;
-  try { await vm.start(); status.textContent = `${id} booted. Network devices: ${mgr.network.getStats().devices}`; }
-  catch (e) { status.textContent = `${id} start failed: ${e.message}`; }
+  const tools = q('[data-tools]');
+  const netBtn = iconButton('ethernet', 'Network up: link up and get a DHCP lease');
+  const chatBtn = iconButton('chat-dots', 'Install and start lan-chat.py (peer-to-peer chat)');
+  const copyBtn = iconButton('copy', 'Copy selection (Ctrl+Shift+C)');
+  const pasteBtn = iconButton('clipboard', 'Paste (Ctrl+Shift+V)');
+  const pauseBtn = iconButton('pause-fill', 'Pause');
+  const removeBtn = iconButton('x-lg', 'Stop and remove this VM', 'danger');
+  tools.append(netBtn, chatBtn, copyBtn, pasteBtn, pauseBtn, removeBtn);
+
+  // The images boot to a root shell with eth0 down and no DHCP client running.
+  netBtn.onclick = () => { vm.sendInput(NET_UP); status(`${id}: requesting a DHCP lease…`); t.focus(); };
+  chatBtn.onclick = () => installChat(vm, t, (fn) => { hold = fn; }).catch((e) => status(`${id}: ${e.message}`));
+  copyBtn.onclick = () => t.copy().then((ok) => { if (!ok) status('Select some text in the console first.'); });
+  pasteBtn.onclick = () => t.paste();
+  pauseBtn.onclick = async () => {
+    if (vm.state === 'paused') await vm.resume();
+    else if (!(await vm.pause())) status(`${id}: this engine build can't pause (no vm_pause export).`);
+  };
+  removeBtn.onclick = async () => { await mgr.destroy(id); t.dispose(); col.remove(); updateLan(); status(`${id} removed.`); };
+
+  status(`${id} starting (${mode === 'worker' ? 'worker thread' : 'main thread'})…`);
+  try { await vm.start(); status(`${id} is booting: a shell in about 20 s, then press its network button.`); }
+  catch (e) { status(`${id} start failed: ${e.message}`); }
+  t.focus();
 }
 
-document.getElementById('add').onclick = addVM;
-document.getElementById('stopall').onclick = () => mgr.destroyAll();
-
-// Populate the distro dropdown from _distro/manifest.json (written by the distro
-// pipeline's stage-web.sh).
-const distroSel = document.getElementById('distro');
-distroSel.addEventListener('change', () => {
-  if (distroSel.value) document.getElementById('cfg').value = distroSel.value;
-});
-// Nothing staged (as on the deployed site) → TinyEMU-distros' published x86 distros.
-const PUBLISHED = 'https://gramthanos.github.io/TinyEMU-distros/manifest.json';
-async function fetchManifest(url) {
-  const r = await fetch(url, { cache: 'no-cache' });
-  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
-  return (await r.json()).distros || [];
+// Type lan-chat.py into the guest (it has no internet to download it), then
+// run it. The console output is held back while the file goes in, so the
+// script doesn't scroll by; a marker the shell prints says the file is written.
+async function installChat(vm, t, setHold) {
+  const script = await fetch(CHAT_URL).then((r) => { if (!r.ok) throw new Error(`lan-chat.py: HTTP ${r.status}`); return r.text(); });
+  const marker = '__LANCHAT_OK';
+  let seen = '';
+  t.write('\r\n\x1b[2m[typing lan-chat.py into /root…]\x1b[0m');
+  // Done once the marker AND the next shell prompt are out: busybox ash ends
+  // its prompt with a cursor-position query (ESC[6n), and xterm's answer must
+  // not arrive after python3 starts, or Python reads it as typed text. Held
+  // back, the query is never answered, which ash doesn't mind.
+  const done = new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 180000);
+    setHold((bytes, text) => {
+      seen = (seen + text).slice(-300);
+      const i = seen.indexOf(marker);
+      if (i >= 0 && /\x1b\[6n|[#$] $/.test(seen.slice(i))) { clearTimeout(timer); resolve(true); }
+    });
+  });
+  // A quoted heredoc writes the file verbatim; printf builds the marker so the
+  // echoed command line itself doesn't contain it.
+  vm.sendInput(`cat > /root/lan-chat.py <<'LANCHAT_EOF'\n${script.replace(/\n?$/, '\n')}LANCHAT_EOF\nprintf '%s_OK\\n' __LANCHAT\n`);
+  const ok = await done;
+  setHold(null);
+  if (!ok) { t.write('\r\n\x1b[31m[no confirmation from the guest after 3 minutes]\x1b[0m\r\n'); return; }
+  t.write(' \x1b[32mdone\x1b[0m\r\n');
+  vm.sendInput(`python3 /root/lan-chat.py --nick ${vm.id}\n`);
+  status(`${vm.id}: lan-chat started. Type to chat; /who lists peers, /msg NICK TEXT whispers, /quit leaves.`);
+  t.focus();
 }
-async function loadManifest() {
-  let list, rel = ROOT;
-  try { list = await fetchManifest(new URL('_distro/manifest.json', ROOT)); }
-  catch (_) {
-    try { list = (await fetchManifest(PUBLISHED)).filter((d) => d.arch === 'x86'); rel = PUBLISHED; }
-    catch (_) { return; /* no list anywhere — keep the text input default */ }
-  }
-  for (const d of list) {
+
+$('add').onclick = addVM;
+$('stopall').onclick = async () => {
+  await mgr.destroyAll(); $('grid').replaceChildren(); updateLan(); status('All VMs removed.');
+};
+$('distro').addEventListener('change', () => { $('cfg').hidden = $('distro').value !== 'custom'; });
+
+try {
+  const { source, distros } = await loadDistros(ROOT);
+  const sel = $('distro');
+  sel.querySelector('option[value=""]').remove();
+  sel.prepend(...distros.map((d) => {
     const o = document.createElement('option');
-    o.value = d.url || new URL(d.config, rel).href; o.textContent = `${d.name} (${d.arch})`;
-    distroSel.appendChild(o);
-  }
-  // Pick a distro from the dropdown, then "+ Add VM" (inline or worker both
-  // boot). A staged distro's .cfg must use ABSOLUTE URLs (the browser resolves
-  // the kernel relative to the .cfg dir but the drive relative to the document
-  // root). Browser boot to a shell takes ~20-25s.
+    o.value = d.url; o.textContent = `${d.name} (${d.arch})`; o.title = d.description;
+    return o;
+  }));
+  sel.selectedIndex = 0;
+  $('cfg').hidden = sel.value !== 'custom';
+  status(`${distros.length} distro(s)${source === 'published' ? ' from TinyEMU-distros' : ' staged in _distro/'}. Add a VM to start.`);
+} catch (e) {
+  $('distro').querySelector('option[value=""]').textContent = 'no distro list';
+  status(`No distro list (${e.message}): use a custom config URL.`);
 }
-loadManifest();   // populate the dropdown; user clicks "+ Add VM" to start
+updateLan();
 </script>
 </body>
 </html>
