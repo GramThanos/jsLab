@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinyEMU — Distro Boot</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #14161a; color: #e6e6e6; }
+  header { padding: 10px 14px; background: #1c1f26; border-bottom: 1px solid #2a2e37; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 14px; }
+  select, button { background: #23272f; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 5px; padding: 5px 8px; font: inherit; }
+  button { cursor: pointer; } button:hover { background: #2c313b; }
+  #spinner { color: #d8a24a; font-size: 12px; }
+  #term { margin: 0; padding: 8px 12px; height: calc(100vh - 150px); overflow: auto; white-space: pre-wrap;
+          word-break: break-all; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
+  #stdin { width: 100%; box-sizing: border-box; border: 0; border-top: 1px solid #2a2e37;
+           background: #16191e; color: #e6e6e6; padding: 8px 12px; font: 12px/1.35 ui-monospace, monospace; }
+  #status { padding: 6px 14px; color: #8a93a2; border-top: 1px solid #2a2e37; background: #1c1f26; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TinyEMU — Distro Boot</h1>
+  <label>distro <select id="distro"></select></label>
+  <button id="boot">Boot</button>
+  <span id="spinner" hidden>● downloading…</span>
+</header>
+<pre id="term"></pre>
+<input id="stdin" placeholder="click here and type → guest stdin (Enter sends newline)" disabled>
+<div id="status">Loading distro list…</div>
+
+<script>
+// Self-contained single-VM distro boot: direct Module.api binding (js/lib.js),
+// no external deps (the sandbox blocks CDNs) — a <pre> console with light ANSI
+// stripping and a stdin line. Reads _distro/manifest.json (from stage-web.sh).
+const ROOT = new URL('../', location.href).href;   // jsLab's root: engine/, _distro/
+const sel = document.getElementById('distro');
+const term = document.getElementById('term');
+const stdinEl = document.getElementById('stdin');
+const statusEl = document.getElementById('status');
+const spinner = document.getElementById('spinner');
+let booted = false;
+
+// Strip the escape sequences a bare <pre> can't render (CSI ... final byte, plus
+// a few common single-char ESC codes), so the boot log stays readable.
+function stripAnsi(s) {
+  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b[()][0-9A-Za-z]/g, '')
+          .replace(/\x1b[=>]/g, '').replace(/[\x00\x07]/g, '');
+}
+const utf8 = new TextDecoder();
+function write(s) { if (typeof s !== 'string') s = utf8.decode(s, { stream: true });
+  const atEnd = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
+  term.textContent += stripAnsi(s); if (atEnd) term.scrollTop = term.scrollHeight; }
+
+async function loadManifest() {
+  try {
+    const m = await fetch(ROOT + '_distro/manifest.json', { cache: 'no-cache' }).then(r => r.json());
+    for (const d of (m.distros || [])) {
+      const o = document.createElement('option');
+      o.value = d.config; o.textContent = `${d.name} (${d.arch})`; o.title = d.description || '';
+      sel.appendChild(o);
+    }
+    if (!sel.options.length) { statusEl.textContent = 'No distros staged (run scripts/stage-web.sh <name> <jsLab dir> in TinyEMU-distros).'; return false; }
+    statusEl.textContent = `${sel.options.length} distro(s). Click Boot.`; return true;
+  } catch (_) { statusEl.textContent = 'No _distro/manifest.json — stage a distro first.'; return false; }
+}
+
+function boot() {
+  if (booted) { location.reload(); return; }   // global Module → one VM per page
+  booted = true;
+  const config = sel.value;
+  statusEl.textContent = `Booting ${sel.selectedOptions[0].textContent}…`;
+
+  const wgetRequests = (function () { const t = {}; let n = 1;
+    return { new(h){ const k = n++; t[k] = h; return k; }, remove(k){ delete t[k]; }, instance: t }; })();
+
+  let queueChar = null;
+  window.Module = {
+    noExitRuntime: true,
+    locateFile: (p) => p.endsWith('.wasm') ? ROOT + 'engine/x86emu-wasm.wasm' : p,
+    api: {
+      terminal: { write, getSize: () => [80, 25] },
+      downloading: { update: (on) => { spinner.hidden = !on; } },
+      wgetRequests, export_file: () => {}, net: null, display: null,
+    },
+    onRuntimeInitialized() {
+      queueChar = Module.cwrap('console_queue_char', null, ['number']);
+      stdinEl.disabled = false;
+      try {
+        Module.ccall('vm_start', null,
+          ['string','number','string','string','number','number','number'],
+          [ROOT + config, 128, '', null, 0, 0, 0]);
+        statusEl.textContent = 'Running. Click the console/input and type.';
+      } catch (e) { statusEl.textContent = 'vm_start error: ' + e; write('\n[vm_start error] ' + e + '\n'); }
+    },
+  };
+  stdinEl.addEventListener('keydown', (e) => {
+    if (!queueChar) return;
+    if (e.key === 'Enter') { queueChar(10); e.preventDefault(); }
+    else if (e.key.length === 1) { queueChar(e.key.charCodeAt(0)); e.preventDefault(); }
+    else if (e.key === 'Backspace') { queueChar(127); e.preventDefault(); }
+    else if (e.key === 'Tab') { queueChar(9); e.preventDefault(); }
+  });
+
+  const s = document.createElement('script');
+  s.src = ROOT + 'engine/x86emu-wasm.js';
+  s.onerror = () => { statusEl.textContent = 'failed to load emulator bundle'; };
+  document.body.appendChild(s);
+}
+
+document.getElementById('boot').onclick = boot;
+(async () => { if (await loadManifest()) boot(); })();   // auto-boot the first distro
+</script>
+</body>
+</html>

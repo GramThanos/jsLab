@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jsLab</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+  li { margin: 0.4rem 0; }
+  @media (prefers-color-scheme: dark) { body { background: #161616; color: #ddd; } a { color: #8ab4f8; } }
+</style>
+</head>
+<body>
+<h1>jsLab</h1>
+<p>Virtual machines and networks in the browser, on the
+<a href="https://github.com/gramthanos/TinyEMU">TinyEMU</a> WebAssembly engine.
+Nothing runs on a server.</p>
+
+<h2>Demos</h2>
+<ul>
+  <li><a href="demos/demo.html">Multi-VM demo</a>: several isolated VMs (on the page or in
+    workers) on one virtual LAN with DHCP.</li>
+  <li><a href="demos/linux-distro.html">Single VM</a>: boots a staged distro, no dependencies.</li>
+  <li><a href="demos/jslinux.html">Legacy single-VM UI</a>, kept as a reference.</li>
+</ul>
+<p>The demos boot the guest images in <code>_distro/</code>, which this site may not have:
+stage them with TinyEMU-distros' <code>scripts/stage-web.sh</code>, or give
+<code>demo.html</code> the URL of a config.</p>
+
+<h2>Library and docs</h2>
+<p><code>lib/vm</code> (VMs, snapshots), <code>lib/volumes</code> (persistent storage) and
+<code>lib/network</code> (the virtual network) are plain ES modules.
+See the <a href="https://github.com/gramthanos/jsLab">repository</a> and
+<a href="https://github.com/gramthanos/jsLab/tree/main/docs">its docs</a>.
+Licence: GPL-3.0-or-later.</p>
+</body>
+</html>

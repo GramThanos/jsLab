@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinyEMU Multi-VM Demo</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #14161a; color: #e6e6e6; }
+  header { padding: 10px 14px; background: #1c1f26; border-bottom: 1px solid #2a2e37; }
+  header h1 { margin: 0 0 6px; font-size: 15px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .controls input, .controls select, .controls button {
+    background: #23272f; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 5px;
+    padding: 5px 8px; font: inherit;
+  }
+  .controls button { cursor: pointer; }
+  .controls button:hover { background: #2c313b; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; padding: 10px; }
+  .vm { background: #1a1d23; border: 1px solid #2a2e37; border-radius: 8px; overflow: hidden; }
+  .vm .bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #21252d; border-bottom: 1px solid #2a2e37; }
+  .vm .bar .id { font-weight: 600; }
+  .vm .bar .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #333; }
+  .badge.running { background: #1f6f3f; } .badge.starting { background: #7a5c1e; }
+  .badge.error { background: #7a2020; } .badge.stopped, .badge.paused { background: #4a4a4a; }
+  .vm .bar .mac { color: #8a93a2; font-size: 11px; margin-left: auto; }
+  .vm .bar button { background: #2a2f38; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 4px; padding: 2px 7px; cursor: pointer; }
+  .vm pre { margin: 0; padding: 8px 10px; height: 260px; overflow: auto; white-space: pre-wrap;
+            word-break: break-all; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
+  .vm input.stdin { width: 100%; box-sizing: border-box; border: 0; border-top: 1px solid #2a2e37;
+                    background: #16191e; color: #e6e6e6; padding: 6px 10px; font: inherit; }
+  #status { padding: 6px 14px; color: #8a93a2; border-top: 1px solid #2a2e37; background: #1c1f26; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TinyEMU Multi-VM Demo — closure-isolated instances</h1>
+  <div class="controls">
+    <label>distro <select id="distro"><option value="">(custom)</option></select></label>
+    <label>config <input id="cfg" value="alpine-x86.cfg" size="26"></label>
+    <label>mode
+      <select id="mode"><option value="inline">inline (main thread)</option>
+      <option value="worker">worker</option></select>
+    </label>
+    <label>mem <input id="mem" type="number" value="256" style="width:70px"> MB</label>
+    <button id="add">+ Add VM</button>
+    <button id="stopall">Stop all</button>
+  </div>
+</header>
+<div id="grid"></div>
+<div id="status">Ready. Each VM is an isolated Module produced by EmulatorFactory — no rebuild, no singleton.</div>
+
+<script type="module">
+import { VMManager } from '../lib/vm/index.js';
+
+const ROOT = new URL('../', location.href);   // jsLab's root: engine/, _distro/
+
+const dec = new TextDecoder();
+const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+window.mgr = mgr;   // for console poking
+let n = 0;
+
+const status = document.getElementById('status');
+const grid = document.getElementById('grid');
+
+function card(id, mac) {
+  const el = document.createElement('div');
+  el.className = 'vm';
+  el.innerHTML = `
+    <div class="bar">
+      <span class="id">${id}</span>
+      <span class="badge starting" data-badge>starting</span>
+      <button data-netup title="Send 'udhcpc -i eth0' to the guest to obtain a lease from the JS DHCP server">Net up</button>
+      <button data-pause>Pause</button>
+      <button data-stop>Stop</button>
+      <span class="mac">${mac}</span>
+    </div>
+    <pre data-out></pre>
+    <input class="stdin" placeholder="type here → guest stdin (Enter to send)">`;
+  grid.appendChild(el);
+  return el;
+}
+
+async function addVM() {
+  const id = 'vm' + (++n);
+  const configUrl = document.getElementById('cfg').value.trim();
+  const mode = document.getElementById('mode').value;
+  const memoryMB = parseInt(document.getElementById('mem').value, 10) || 256;
+
+  let vm;
+  try {
+    vm = await mgr.create(id, { configUrl, mode, memoryMB, hasNetwork: true, cols: 80, rows: 24 });
+  } catch (e) { status.textContent = `create ${id} failed: ${e.message}`; return; }
+
+  const el = card(id, vm.mac);
+  const out = el.querySelector('[data-out]');
+  const badge = el.querySelector('[data-badge]');
+  const stdin = el.querySelector('.stdin');
+
+  vm.onConsole(b => { out.textContent += dec.decode(b, { stream: true }); out.scrollTop = out.scrollHeight; });
+  vm.onState(s => { badge.textContent = s; badge.className = 'badge ' + s; });
+  vm.onLog(({ level, text }) => { if (level === 'err') console.warn(`[${id}]`, text); });
+  vm.onError(e => { status.textContent = `${id} error: ${e.message}`; });
+
+  stdin.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { vm.sendInput(stdin.value + '\n'); stdin.value = ''; ev.preventDefault(); }
+  });
+  el.querySelector('[data-stop]').onclick = () => mgr.destroy(id);
+  // Guests booted with init=/bin/sh don't auto-configure the NIC, so the JS
+  // DHCP/switch layer stays idle. Nudge the guest to request a lease.
+  el.querySelector('[data-netup]').onclick = () => {
+    vm.sendInput('udhcpc -i eth0 2>/dev/null || ip link set eth0 up\n');
+    status.textContent = `${id}: requested DHCP lease (udhcpc). Watch the console.`;
+  };
+  el.querySelector('[data-pause]').onclick = async (e) => {
+    if (vm.state === 'paused') { await vm.resume(); }
+    else { const ok = await vm.pause(); if (!ok) status.textContent = `${id}: pause needs C vm_pause (see plan-c-changes.md)`; }
+  };
+
+  status.textContent = `${id} starting (${mode})…`;
+  try { await vm.start(); status.textContent = `${id} booted. Network devices: ${mgr.network.getStats().devices}`; }
+  catch (e) { status.textContent = `${id} start failed: ${e.message}`; }
+}
+
+document.getElementById('add').onclick = addVM;
+document.getElementById('stopall').onclick = () => mgr.destroyAll();
+
+// Populate the distro dropdown from _distro/manifest.json (written by the distro
+// pipeline's stage-web.sh). Absent → keep the plain config text input.
+const distroSel = document.getElementById('distro');
+distroSel.addEventListener('change', () => {
+  if (distroSel.value) document.getElementById('cfg').value = distroSel.value;
+});
+async function loadManifest() {
+  try {
+    const r = await fetch(new URL('_distro/manifest.json', ROOT), { cache: 'no-cache' });
+    if (!r.ok) return;
+    const m = await r.json();
+    for (const d of (m.distros || [])) {
+      const o = document.createElement('option');
+      o.value = new URL(d.config, ROOT).href; o.textContent = `${d.name} (${d.arch})`;
+      distroSel.appendChild(o);
+    }
+    // Pick a distro from the dropdown, then "+ Add VM" (inline or worker both
+    // boot). A staged distro's .cfg must use ABSOLUTE URLs (the browser resolves
+    // the kernel relative to the .cfg dir but the drive relative to the document
+    // root). Browser boot to a shell takes ~20-25s.
+  } catch (_) { /* no manifest — keep the text input default */ }
+}
+loadManifest();   // populate the dropdown; user clicks "+ Add VM" to start
+</script>
+</body>
+</html>

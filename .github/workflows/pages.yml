@@ -1,0 +1,45 @@
+# Deploy the demos and library to GitHub Pages, with the TinyEMU engine fetched
+# from TinyEMU's Pages. Run by hand (Actions -> pages -> Run workflow).
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+name: pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: 'TinyEMU engine version (a directory on TinyEMU Pages, or latest)'
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+      - run: node scripts/fetch-engine.mjs "${{ inputs.engine }}"
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp -r index.html LICENSE README.md lib demos docs engine _site/
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
