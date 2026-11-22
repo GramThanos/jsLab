@@ -34,7 +34,8 @@
 <script>
 // Self-contained single-VM distro boot: direct Module.api binding (js/lib.js),
 // no external deps (the sandbox blocks CDNs) — a <pre> console with light ANSI
-// stripping and a stdin line. Reads _distro/manifest.json (from stage-web.sh).
+// stripping and a stdin line. Reads _distro/manifest.json (from stage-web.sh),
+// or TinyEMU-distros' published list when nothing is staged.
 const ROOT = new URL('../', location.href).href;   // jsLab's root: engine/, _distro/
 const sel = document.getElementById('distro');
 const term = document.getElementById('term');
@@ -54,17 +55,29 @@ function write(s) { if (typeof s !== 'string') s = utf8.decode(s, { stream: true
   const atEnd = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
   term.textContent += stripAnsi(s); if (atEnd) term.scrollTop = term.scrollHeight; }
 
+// The distro list: _distro/manifest.json if distros are staged locally, else the
+// x86 distros TinyEMU-distros publishes on its Pages (this is the x86 engine).
+// A local manifest's configs are relative to jsLab's root, a published one's to itself.
+const PUBLISHED = 'https://gramthanos.github.io/TinyEMU-distros/manifest.json';
+async function fetchManifest(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return (await r.json()).distros || [];
+}
 async function loadManifest() {
-  try {
-    const m = await fetch(ROOT + '_distro/manifest.json', { cache: 'no-cache' }).then(r => r.json());
-    for (const d of (m.distros || [])) {
-      const o = document.createElement('option');
-      o.value = d.config; o.textContent = `${d.name} (${d.arch})`; o.title = d.description || '';
-      sel.appendChild(o);
-    }
-    if (!sel.options.length) { statusEl.textContent = 'No distros staged (run scripts/stage-web.sh <name> <jsLab dir> in TinyEMU-distros).'; return false; }
-    statusEl.textContent = `${sel.options.length} distro(s). Click Boot.`; return true;
-  } catch (_) { statusEl.textContent = 'No _distro/manifest.json — stage a distro first.'; return false; }
+  let list, rel = ROOT;
+  try { list = await fetchManifest(ROOT + '_distro/manifest.json'); }
+  catch (_) {
+    try { list = (await fetchManifest(PUBLISHED)).filter((d) => d.arch === 'x86'); rel = PUBLISHED; }
+    catch (_) { statusEl.textContent = 'No distro list: stage one with TinyEMU-distros’ scripts/stage-web.sh.'; return false; }
+  }
+  for (const d of list) {
+    const o = document.createElement('option');
+    o.value = d.url || new URL(d.config, rel).href; o.textContent = `${d.name} (${d.arch})`; o.title = d.description || '';
+    sel.appendChild(o);
+  }
+  if (!sel.options.length) { statusEl.textContent = 'No distros staged (run scripts/stage-web.sh <name> <jsLab dir> in TinyEMU-distros).'; return false; }
+  statusEl.textContent = `${sel.options.length} distro(s)${rel === PUBLISHED ? ' from TinyEMU-distros' : ''}. Click Boot.`; return true;
 }
 
 function boot() {
@@ -91,7 +104,7 @@ function boot() {
       try {
         Module.ccall('vm_start', null,
           ['string','number','string','string','number','number','number'],
-          [ROOT + config, 128, '', null, 0, 0, 0]);
+          [config, 128, '', null, 0, 0, 0]);
         statusEl.textContent = 'Running. Click the console/input and type.';
       } catch (e) { statusEl.textContent = 'vm_start error: ' + e; write('\n[vm_start error] ' + e + '\n'); }
     },

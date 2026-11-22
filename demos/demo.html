@@ -127,26 +127,34 @@ document.getElementById('add').onclick = addVM;
 document.getElementById('stopall').onclick = () => mgr.destroyAll();
 
 // Populate the distro dropdown from _distro/manifest.json (written by the distro
-// pipeline's stage-web.sh). Absent → keep the plain config text input.
+// pipeline's stage-web.sh).
 const distroSel = document.getElementById('distro');
 distroSel.addEventListener('change', () => {
   if (distroSel.value) document.getElementById('cfg').value = distroSel.value;
 });
+// Nothing staged (as on the deployed site) → TinyEMU-distros' published x86 distros.
+const PUBLISHED = 'https://gramthanos.github.io/TinyEMU-distros/manifest.json';
+async function fetchManifest(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return (await r.json()).distros || [];
+}
 async function loadManifest() {
-  try {
-    const r = await fetch(new URL('_distro/manifest.json', ROOT), { cache: 'no-cache' });
-    if (!r.ok) return;
-    const m = await r.json();
-    for (const d of (m.distros || [])) {
-      const o = document.createElement('option');
-      o.value = new URL(d.config, ROOT).href; o.textContent = `${d.name} (${d.arch})`;
-      distroSel.appendChild(o);
-    }
-    // Pick a distro from the dropdown, then "+ Add VM" (inline or worker both
-    // boot). A staged distro's .cfg must use ABSOLUTE URLs (the browser resolves
-    // the kernel relative to the .cfg dir but the drive relative to the document
-    // root). Browser boot to a shell takes ~20-25s.
-  } catch (_) { /* no manifest — keep the text input default */ }
+  let list, rel = ROOT;
+  try { list = await fetchManifest(new URL('_distro/manifest.json', ROOT)); }
+  catch (_) {
+    try { list = (await fetchManifest(PUBLISHED)).filter((d) => d.arch === 'x86'); rel = PUBLISHED; }
+    catch (_) { return; /* no list anywhere — keep the text input default */ }
+  }
+  for (const d of list) {
+    const o = document.createElement('option');
+    o.value = d.url || new URL(d.config, rel).href; o.textContent = `${d.name} (${d.arch})`;
+    distroSel.appendChild(o);
+  }
+  // Pick a distro from the dropdown, then "+ Add VM" (inline or worker both
+  // boot). A staged distro's .cfg must use ABSOLUTE URLs (the browser resolves
+  // the kernel relative to the .cfg dir but the drive relative to the document
+  // root). Browser boot to a shell takes ~20-25s.
 }
 loadManifest();   // populate the dropdown; user clicks "+ Add VM" to start
 </script>
