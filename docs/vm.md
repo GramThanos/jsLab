@@ -53,9 +53,10 @@ Passed to `mgr.create(id, config)`:
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| `configUrl` | — | TinyEMU `.cfg` (kernel + fs0 + eth0). Resolved to **absolute** (a relative URL aborts in the C loader). |
+| `configUrl` | — | TinyEMU `.cfg` (kernel + fs0 + eth0): an `http(s)` URL (relative to the page), or a `blob:` or `data:` URL. Files the `.cfg` names are relative to it; a `blob:`/`data:` config has no directory, so its files are relative to the page (in worker mode too). |
+| `configOverride` | — | Changes the `.cfg` before boot: an **object** deep-merged into it, or a **function** `(cfg) => newCfg` (may be async). See [config overrides](#config-overrides). |
 | `mode` | `'worker'` | `'worker'` (off the UI thread, clean stop) or `'inline'` (many VMs, one thread, no worker needed). |
-| `memoryMB` | `256` | Guest RAM. |
+| `memoryMB` | the `.cfg`'s `memory_size` | Guest RAM in MiB. Given, it replaces the `.cfg`'s `memory_size` (also one set by `configOverride`). |
 | `cmdline` | `''` | Extra kernel cmdline, appended to the `.cfg`'s. |
 | `napiTxFix` | `true` | With `hasNetwork`, appends `virtio_net.napi_tx=0` to the kernel cmdline. TinyEMU's virtio rings hold 16 buffers, fewer than the 19 free slots Linux's NAPI transmit path waits for, so without it the guest sends one frame and then nothing. `false` leaves the cmdline alone. |
 | `hasNetwork` | — | `true` bridges the NIC to the `VirtualNetwork` and raises carrier. |
@@ -63,6 +64,43 @@ Passed to `mgr.create(id, config)`:
 | `width`, `height` | `0` | Framebuffer size (graphics builds). |
 | `mac` | derived from id | `'02:..'` string or `Uint8Array`. |
 | `volumes` | `[]` | Array of volume specs — see [storage](./storage.md). |
+
+### Config overrides
+
+With `configOverride`, `vm.start()` fetches `configUrl`, parses it (TinyEMU's
+relaxed JSON: comments, unquoted keys, `0x` numbers) and makes its file paths
+(`bios`, `kernel`, `initrd`, `driveN.file`, `fsN.file`) absolute. Then:
+
+- an **object** is merged in: objects merge key by key, anything else (arrays
+  too) replaces, and `null` deletes a key;
+- a **function** gets that config as a JS object and returns the one to boot.
+  It may be async, and if it returns nothing, the object it was given (and may
+  have changed) is used.
+
+The result is written back in TinyEMU's format and booted as a `data:` URL. It's
+on `vm.resolvedConfig` once the VM starts. This runs on the main thread, so a
+function works in worker mode too.
+
+```js
+// more memory, no network card, another kernel (relative to the page)
+await mgr.create('a', { configUrl: 'alpine-x86.cfg',
+    configOverride: { memory_size: 512, eth0: null, kernel: 'my/kernel.bin' } });
+
+// anything else: a function
+await mgr.create('b', { configUrl: 'alpine-x86.cfg',
+    configOverride: (cfg) => ({ ...cfg, cmdline: cfg.cmdline + ' quiet' }) });
+
+// a config made on the page
+const text = JSON.stringify({ version: 1, machine: 'pc', memory_size: 256,
+    kernel: 'https://example.org/kernel-x86.bin', fs0: { file: 'https://example.org/rootfs' } });
+await mgr.create('c', { configUrl: URL.createObjectURL(new Blob([text])) });
+```
+
+Notes: an override of `memory_size` takes effect only without `memoryMB`. TinyEMU reads only non-negative integers, so a fractional or negative
+number is refused with the key's name. Drives and filesystems are numbered from 0
+without gaps (`drive0`, `drive1`, ...): deleting `drive0` hides `drive1` too.
+`parseConfig`, `stringifyConfig`, `mergeConfig` and `loadConfig` are exported
+from `lib/vm/index.js` for pages that want to work on a config themselves.
 
 ## VM handle
 

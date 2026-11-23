@@ -296,7 +296,8 @@ gives a 32 MB snapshot, and the VM pauses for about 0.1 s while it is copied.
   indices, and the same config and disk images. `SnapshotStore` keeps snapshots in
   IndexedDB under a fingerprint of those (`snapshotFingerprint`: the wasm bytes,
   the config text, the `Last-Modified`/`ETag` of the kernel and drive files it
-  names, and the VM options). `load` returns a snapshot only if its fingerprint
+  names, and the VM options). Pass it the VM's `configOverride` too, so it
+  fingerprints the config the VM actually boots. `load` returns a snapshot only if its fingerprint
   matches, and deletes a stale one.
 - **Time:** the emulated PIT, RTC and TSC all read `host_clock_ns()`
   (`machine.c`), which `vm_restore` shifts so the guest's clocks continue from the
