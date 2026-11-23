@@ -12,11 +12,11 @@ them persistent, Docker-like volumes.
 > [Storage](./storage.md) · [WASM runtime](./wasm-runtime.md)). This page is the
 > architecture overview + roadmap.
 
-The WASM engine (`engine/x86emu-wasm.js` + `.wasm`) is built by
+The WASM engine (`x86emu-wasm.js` + `.wasm`) is built by
 [TinyEMU](https://github.com/gramthanos/TinyEMU) (`Makefile.js`) and bound to
 the browser through TinyEMU's `wasm/lib.js` (the `Module.api` binding). jsLab
-doesn't commit it: `npm run fetch-engine` downloads a release from TinyEMU's
-GitHub Pages (see §7).
+ships no copy: it loads a release from TinyEMU's GitHub Pages, the one
+`lib/vm/engine.js` pins unless told otherwise (see §7).
 
 ---
 
@@ -65,12 +65,13 @@ jsLab/
 │   ├── demo.html              Multi-VM lab: VMs on one LAN, IPs, lan-chat.py.
 │   ├── linux-distro.html      Single-VM lab.
 │   ├── terminal.js            xterm.js console shared by the labs (copy/paste).
-│   ├── distros.js             Distro list: _distro/manifest.json or TinyEMU-distros.
+│   ├── distros.js             Distro list: TinyEMU-distros' published manifest.
 │   └── lan-chat.py            Peer-to-peer UDP broadcast chat, typed into guests.
 ├── lib/
 │   ├── linux.js               Simple single-VM bootstrap (xterm + Module.api).
 │   ├── vm/                    ✅ VM wrapper / manager.
 │   │   ├── index.js
+│   │   ├── engine.js           Where the engine loads from (pinned TinyEMU release).
 │   │   ├── EmulatorFactory.js  Closure-wraps the bundle → isolated Module per instance.
 │   │   ├── EmulatorEngine.js   Drives one Module: boot, console/net I/O, Module.api.
 │   │   ├── InlineHost.js       Runs a VM on the main thread (mode: 'inline').
@@ -88,10 +89,8 @@ jsLab/
 │       ├── packets/  {EthernetFrame, IPPacket, ARPPacket, DHCPPacket, UDPPacket, ICMPPacket}
 │       ├── transports/ {NetworkTransport, BroadcastChannelTransport, WebSocketRelayTransport}
 │       └── utils/    {IPUtils, MACUtils, Checksum}
-├── engine/                    x86emu-wasm.js + .wasm (npm run fetch-engine; not committed)
-├── _distro/                   staged guest images (TinyEMU-distros' stage-web.sh; not committed)
 ├── docs/                      this documentation; docs/plans/ holds the original designs
-├── scripts/fetch-engine.mjs
+├── scripts/serve.mjs          static server for the demos (npm run serve)
 └── tests/                     node tests (npm test)
 ```
 
@@ -393,19 +392,18 @@ guest is the main remaining C task. Full details and signatures in
 ## 7. Build & run
 
 The JS (network / vm / volumes) are native ES modules — no bundler needed.
-Fetch the engine, then serve the repository root over HTTP (ES modules + WASM
-require it; `file://` won't work):
+Serve the repository root over HTTP (ES modules + WASM require it; `file://`
+won't work):
 
 ```bash
-npm run fetch-engine                  # latest engine from TinyEMU's GitHub Pages
-python3 -m http.server 8000           # then open http://localhost:8000/demos/demo.html
+npm run serve                         # then open http://localhost:8000/demos/demo.html
 ```
 
-`node scripts/fetch-engine.mjs <version>` pins a release;
-`node scripts/fetch-engine.mjs --from <TinyEMU>/dist/wasm` copies a local build
-instead (`make -f Makefile.js` in TinyEMU, in the `emscripten/emsdk:3.1.74`
-image). A page can also load the engine straight from TinyEMU's Pages:
-`new VMManager({ urls: { wasmJsUrl, wasmBinUrl } })`.
+The engine loads from TinyEMU's GitHub Pages: the release `ENGINE_VERSION` in
+`lib/vm/engine.js` pins, or another with `new VMManager({ engine: 'latest' })`
+or a release name. To run your own build (`make -f Makefile.js` in TinyEMU, in
+the `emscripten/emsdk:3.1.74` image), serve its `dist/wasm/` and pass that folder:
+`new VMManager({ engine: '/path/to/wasm/' })`; the demos take it as `?engine=`.
 
 The engine is a classic (non-`MODULARIZE`) script on purpose, so
 `EmulatorFactory` can closure-wrap it for isolation.
@@ -437,9 +435,9 @@ n.waitForDHCP(a).then(()=>n.waitForDHCP(b)).then(async()=>{
    single-VM page (`linux-distro.html`) and the **multi-VM `demo.html`**
    (inline *and* worker verified interactive: `uname -m`→i686,
    `/etc/alpine-release`→3.20.3). Built by the TinyEMU-distros
-   pipeline (Alpine 3.20 x86, chunked virtio-block); stage assets under
-   `_distro/` via that repo's `scripts/stage-web.sh`, which also writes
-   `_distro/manifest.json` (the dropdown source). Guest streams `blk*.bin` (now 512 KB
+   pipeline (Alpine 3.20 x86, chunked virtio-block); the demos boot the
+   images that repo publishes on its Pages (its `manifest.json` is the
+   dropdown source). Guest streams `blk*.bin` (now 512 KB
    `blk*.bin.gz`, gzipped, which `block_net.c` inflates)
    chunks over HTTP. Browser-boot facts learned here:
    - the cfg's kernel + drive URLs must be **absolute** — the browser resolves

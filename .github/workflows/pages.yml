@@ -1,15 +1,10 @@
-# Deploy the demos and library to GitHub Pages, with the TinyEMU engine fetched
+# Deploy the demos and library to GitHub Pages; they load the TinyEMU engine
 # from TinyEMU's Pages. Run by hand (Actions -> pages -> Run workflow).
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 name: pages
 
 on:
   workflow_dispatch:
-    inputs:
-      engine:
-        description: 'TinyEMU engine version (a directory on TinyEMU Pages, or latest)'
-        required: false
-        default: latest
 
 permissions:
   contents: read
@@ -32,11 +27,10 @@ jobs:
         with:
           node-version: 24
       - run: npm test
-      - run: node scripts/fetch-engine.mjs "${{ inputs.engine }}"
       - name: Assemble the site
         run: |
           mkdir -p _site
-          cp -r index.html LICENSE README.md lib demos docs engine _site/
+          cp -r index.html LICENSE README.md lib demos docs _site/
           touch _site/.nojekyll
       # One artifact name per attempt: a re-run keeps the earlier attempt's
       # artifact, and deploy-pages refuses when two share a name.

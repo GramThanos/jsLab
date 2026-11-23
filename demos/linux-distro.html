@@ -42,17 +42,19 @@
 
 <script type="module">
 // One VM in a Web Worker (lib/vm), its console in xterm.js (terminal.js), the
-// distro list from _distro/manifest.json or TinyEMU-distros (distros.js).
+// distro list from TinyEMU-distros (distros.js).
 import { VMManager } from '../lib/vm/index.js';
 import { createTerminal } from './terminal.js';
 import { loadDistros } from './distros.js';
+import { resolveEngine } from './engine.js';
 
-const ROOT = new URL('../', location.href);   // jsLab's root: engine/, _distro/
 const $ = (id) => document.getElementById(id);
 const sel = $('distro'), bootBtn = $('boot'), statusEl = $('status');
 const STATE_THEME = { starting: 'warning', running: 'success', paused: 'secondary', stopped: 'secondary', error: 'danger' };
 
-const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+const engine = await resolveEngine();   // ?engine=latest|<version>|<folder>
+const ENGINE_NOTE = `Engine: ${engine.label}.`;
+const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' }, urls: engine.urls });
 window.mgr = mgr;   // for console poking
 let vm = null;
 
@@ -86,7 +88,7 @@ async function boot() {
   vm.onError((e) => { statusEl.textContent = `Error: ${e.message}`; });
   bootBtn.querySelector('span').textContent = 'Reboot';
   bootBtn.querySelector('i').className = 'bi bi-arrow-clockwise';
-  statusEl.textContent = `Booting ${name}… (to a shell in about 20 s; for networking, run: udhcpc -i eth0)`;
+  statusEl.textContent = `${ENGINE_NOTE} Booting ${name}… (to a shell in about 20 s; for networking, run: udhcpc -i eth0)`;
   try { await vm.start(); statusEl.textContent = `${name} is running. Copy: Ctrl+Shift+C or right-click; paste: Ctrl+Shift+V or right-click.`; }
   catch (e) { statusEl.textContent = `Start failed: ${e.message}`; }
   t.focus();
@@ -94,7 +96,7 @@ async function boot() {
 bootBtn.onclick = boot;
 
 try {
-  const { source, distros } = await loadDistros(ROOT);
+  const distros = await loadDistros();
   sel.replaceChildren(...distros.map((d) => {
     const o = document.createElement('option');
     o.value = d.url; o.textContent = `${d.name} (${d.arch})`; o.title = d.description;
@@ -102,11 +104,11 @@ try {
   }));
   if (!distros.length) throw new Error('the list is empty');
   sel.disabled = false; bootBtn.disabled = false;
-  statusEl.textContent = `${distros.length} distro(s)${source === 'published' ? ' from TinyEMU-distros' : ' staged in _distro/'}.`;
+  statusEl.textContent = `${distros.length} distro(s) from TinyEMU-distros. ${ENGINE_NOTE}`;
   boot();   // boot the first distro straight away
 } catch (e) {
   sel.replaceChildren(new Option('no distros'));
-  statusEl.textContent = `No distro list (${e.message}): stage one with TinyEMU-distros’ scripts/stage-web.sh.`;
+  statusEl.textContent = `No distro list (${e.message}).`;
 }
 </script>
 </body>

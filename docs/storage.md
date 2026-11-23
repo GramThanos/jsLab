@@ -205,7 +205,7 @@ through to the HTTP base on an overlay miss; writes go only to the overlay.
 const vm = await mgr.create('vm1', {
   configUrl: 'alpine-x86.cfg',
   volumes: [{ name: 'root', backend: 'indexeddb', type: 'block',
-              baseUrl: '/_distro/alpine/root.bin' }],   // TinyEMU split-image descriptor
+              baseUrl: 'https://example.org/alpine/root.bin' }],   // TinyEMU split-image descriptor
 });
 ```
 

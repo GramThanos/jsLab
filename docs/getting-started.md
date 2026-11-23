@@ -8,7 +8,6 @@ modules — no bundler or build step for the JS side.
 ES modules and WASM require `http://` (a `file://` page will not work):
 
 ```bash
-npm run fetch-engine          # the WASM engine, from TinyEMU's GitHub Pages
 python3 -m http.server 8000   # from the jsLab root
 # open http://localhost:8000/demos/demo.html
 ```
@@ -23,11 +22,11 @@ In the consoles, Ctrl+Shift+C (or Ctrl+C with text selected) copies,
 Ctrl+Shift+V or Shift+Insert pastes, and a right-click copies the selection or
 pastes. Ctrl+C with nothing selected goes to the guest.
 
-> **Assets:** the WASM engine (`engine/x86emu-wasm.js` + `.wasm`) comes from
-> `npm run fetch-engine`, but reaching a shell needs a kernel + rootfs image the
-> `.cfg` points to. Stage a distro under `_distro/` with TinyEMU-distros'
-> `scripts/stage-web.sh <name> <jsLab dir>` (see [runtime.md](./runtime.md) §8),
-> or point the config at your own. A browser boot to `/bin/sh` takes ~20-25 s —
+> **Assets:** the WASM engine (`x86emu-wasm.js` + `.wasm`) loads from TinyEMU's
+> GitHub Pages (the release `lib/vm/engine.js` pins), but reaching a shell needs a
+> kernel + rootfs image the `.cfg` points to. Use one of the distros TinyEMU-distros publishes (its
+> [manifest](https://gramthanos.github.io/TinyEMU-distros/manifest.json) lists
+> their config URLs), or point the config at your own. A browser boot to `/bin/sh` takes ~20-25 s —
 > that pre-shell window is not a hang.
 
 ## 2. Boot a single VM

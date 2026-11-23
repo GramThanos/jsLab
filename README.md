@@ -16,8 +16,6 @@ and resumed. Nothing runs on a server.
 | `lib/linux.js` | a simple single-VM bootstrap (xterm.js + the engine) |
 | `demos/` | the labs: `demo.html` (multi-VM), `linux-distro.html` (single VM); `terminal.js` (their xterm.js console), `distros.js` (the distro list), `lan-chat.py` (a peer-to-peer chat the multi-VM lab installs in its guests) |
 | `docs/` | [documentation](docs/README.md); `docs/runtime.md` is the architecture overview |
-| `engine/` | the TinyEMU engine, downloaded by `npm run fetch-engine` (not committed) |
-| `_distro/` | guest images staged by TinyEMU-distros (not committed) |
 
 The modules are plain ES modules with no dependencies and no build step. Import
 them directly:
@@ -31,30 +29,35 @@ vm.on('console', (bytes) => { /* to a terminal */ });
 vm.start();
 ```
 
-By default the engine is loaded from `engine/`. To use TinyEMU's published
-build instead, pass its URLs (pin a version):
+jsLab ships no engine. By default it loads the TinyEMU WebAssembly engine
+release it pins (`ENGINE_VERSION` in `lib/vm/engine.js`, currently
+`v2026-11-22`) from [TinyEMU's GitHub Pages](https://gramthanos.github.io/TinyEMU/).
+One engine runs both x86 and RISC-V guests. To use another, pass `engine`: a
+release name, `'latest'`, or the URL or path of a folder holding
+`x86emu-wasm.js` + `x86emu-wasm.wasm` (your own build, a mirror):
 
 ```js
-new VMManager({ urls: {
-    wasmJsUrl:  'https://gramthanos.github.io/TinyEMU/engine/<version>/x86emu-wasm.js',
-    wasmBinUrl: 'https://gramthanos.github.io/TinyEMU/engine/<version>/x86emu-wasm.wasm',
-} });
+new VMManager({ engine: 'latest' });
+new VMManager({ engine: '/vendor/tinyemu/' });   // ./x86emu-wasm.js + .wasm in there
 ```
+
+`urls: { wasmJsUrl, wasmBinUrl }` sets the two files' URLs one by one.
 
 ## Running the demos
 
 ```bash
-npm run fetch-engine        # latest engine from TinyEMU's GitHub Pages (checksummed)
 npm run serve               # http://localhost:8000/demos/demo.html
 ```
 
-`node scripts/fetch-engine.mjs <version>` pins a release, and `--from
-<TinyEMU>/dist/wasm` copies a local engine build instead.
+The demos load the pinned engine. Add `?engine=` to a demo's URL to choose
+another: `latest`, a release such as `?engine=v2026-11-22`, or a folder such as
+`?engine=/my-build/` (a TinyEMU build served from the same server). The status
+line names the engine in use.
 
-A VM needs a guest image. Build one with
-[TinyEMU-distros](https://github.com/gramthanos/TinyEMU-distros) and stage it
-here with that repository's `scripts/stage-web.sh <name> <path to jsLab>`; the
-demos list the staged images.
+A VM needs a guest image. The demos list the x86 and RISC-V distros that
+[TinyEMU-distros](https://github.com/gramthanos/TinyEMU-distros) publishes on
+its [Pages](https://gramthanos.github.io/TinyEMU-distros/); the multi-VM lab
+also takes the URL of any TinyEMU config.
 
 ## Tests
 
@@ -76,5 +79,5 @@ copy-on-write block store); CI runs them on every push.
 
 ## Licence
 
-GPL-3.0-or-later, see [LICENSE](LICENSE). The TinyEMU engine that `engine/`
-holds is MIT.
+GPL-3.0-or-later, see [LICENSE](LICENSE). The TinyEMU engine it loads is
+MIT.

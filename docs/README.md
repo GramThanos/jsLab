@@ -16,7 +16,7 @@ persistent, Docker-like volumes — all client-side, no backend required.
 | [VM runtime](./vm.md) | Creating/starting/stopping VMs, `VMManager`, `VM` handles, inline vs worker modes, events & stats | `lib/vm/` |
 | [Networking](./networking.md) | The in-tab virtual LAN (switch, DHCP, ARP, ICMP), packet classes, and **transports** for reaching other tabs / the internet / peers | `lib/network/` |
 | [Storage / volumes](./storage.md) | Browser-backed persistent volumes and overlay disks, the backends, and their current guest-side status | `lib/volumes/` |
-| [WASM runtime & isolation](./wasm-runtime.md) | How one Emscripten bundle runs many isolated VMs (`EmulatorFactory`), the `Module.api` C↔JS contract (`lib.js`), and rebuilding the `.wasm` | `engine/x86emu-wasm.*`, TinyEMU's `wasm/lib.js`, `lib/vm/Emulator*.js` |
+| [WASM runtime & isolation](./wasm-runtime.md) | How one Emscripten bundle runs many isolated VMs (`EmulatorFactory`), the `Module.api` C↔JS contract (`lib.js`), and rebuilding the `.wasm` | `lib/vm/engine.js`, TinyEMU's `wasm/lib.js`, `lib/vm/Emulator*.js` |
 
 ## How the pieces fit
 

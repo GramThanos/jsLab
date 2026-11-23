@@ -1,6 +1,6 @@
 # WASM runtime & isolation
 
-Source: `engine/x86emu-wasm.js` + `.wasm` (the bundle), TinyEMU's `wasm/lib.js` (the C↔JS
+Source: `x86emu-wasm.js` + `.wasm` (the bundle, from TinyEMU's Pages: `lib/vm/engine.js`), TinyEMU's `wasm/lib.js` (the C↔JS
 binding), and `lib/vm/EmulatorFactory.js` / `EmulatorEngine.js`.
 
 This explains how **many** emulator instances run in one JS realm from **one**
@@ -116,7 +116,8 @@ Two gotchas handled in the code:
 ## Rebuilding the WASM
 
 Built from the repo's **current C sources** with Emscripten via `../Makefile.js`,
-bound through TinyEMU's `wasm/lib.js`. Output: `engine/x86emu-wasm.js` + `.wasm`. No local
+bound through TinyEMU's `wasm/lib.js`. Output: `dist/wasm/x86emu-wasm.js` + `.wasm`; point jsLab at that folder with
+`new VMManager({ engine: '<its URL>/' })`. No local
 emcc needed — run it in the emscripten container from the repo root:
 
 ```bash

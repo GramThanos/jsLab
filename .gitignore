@@ -1,8 +1,3 @@
-# The TinyEMU engine (npm run fetch-engine) and staged guest images
-# (TinyEMU-distros' scripts/stage-web.sh): downloaded, never committed.
-/engine/
-/_distro/
-
 node_modules/
 
 # Local tool state

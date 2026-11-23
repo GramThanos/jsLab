@@ -58,14 +58,16 @@
 import { VMManager } from '../lib/vm/index.js';
 import { createTerminal } from './terminal.js';
 import { loadDistros } from './distros.js';
+import { resolveEngine } from './engine.js';
 
-const ROOT = new URL('../', location.href);   // jsLab's root: engine/, _distro/
 const CHAT_URL = new URL('lan-chat.py', location.href);
 const $ = (id) => document.getElementById(id);
 const status = (text) => { $('status').textContent = text; };
 const STATE_THEME = { starting: 'warning', running: 'success', paused: 'secondary', stopped: 'secondary', error: 'danger' };
 
-const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+const engine = await resolveEngine();   // ?engine=latest|<version>|<folder>
+const ENGINE_NOTE = `Engine: ${engine.label}.`;
+const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' }, urls: engine.urls });
 window.mgr = mgr;   // for console poking
 let n = 0;
 
@@ -211,7 +213,7 @@ $('stopall').onclick = async () => {
 $('distro').addEventListener('change', () => { $('cfg').hidden = $('distro').value !== 'custom'; });
 
 try {
-  const { source, distros } = await loadDistros(ROOT);
+  const distros = await loadDistros();
   const sel = $('distro');
   sel.querySelector('option[value=""]').remove();
   sel.prepend(...distros.map((d) => {
@@ -221,7 +223,7 @@ try {
   }));
   sel.selectedIndex = 0;
   $('cfg').hidden = sel.value !== 'custom';
-  status(`${distros.length} distro(s)${source === 'published' ? ' from TinyEMU-distros' : ' staged in _distro/'}. Add a VM to start.`);
+  status(`${distros.length} distro(s) from TinyEMU-distros. ${ENGINE_NOTE} Add a VM to start.`);
 } catch (e) {
   $('distro').querySelector('option[value=""]').textContent = 'no distro list';
   status(`No distro list (${e.message}): use a custom config URL.`);
