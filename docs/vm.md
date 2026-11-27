@@ -3,16 +3,18 @@
 Source: `lib/vm/` — exported via `lib/vm/index.js`.
 
 Manages one or more TinyEMU instances, their lifecycle, console/network I/O, and
-the bridge onto the shared virtual network and volumes.
+the bridge onto a virtual network and volumes. What the page trusts from a VM's
+worker, and the isolated mode, are in [runtime § 9](./runtime.md#9-trust-boundary-and-isolation).
 
 ## Classes at a glance
 
 | Class | Role |
 |-------|------|
-| `VMManager` | Owns many VMs + one shared `VirtualNetwork` + a `VolumeManager`. Your main entry point. |
+| `VMManager` | Owns many VMs, their `VirtualNetwork`s (a default one, or one per name) and a `VolumeManager`. Your main entry point. |
 | `VM` | Main-thread **handle** for one instance: lifecycle, events, stats, I/O routing. |
 | `InlineHost` | Runs a VM on the current thread (`mode: 'inline'`). |
-| `WorkerHost` | Runs a VM in its own Web Worker (`mode: 'worker'`, default). |
+| `WorkerHost` | Runs a VM in its own Web Worker (`mode: 'worker'`, default). Checks every message from the worker. |
+| `IsolatedHost` | Runs the worker in a sandboxed frame with no network or storage of its own (`mode: 'isolated'`). |
 | `EmulatorEngine` | Drives one isolated `Module`: boot, cwrap'd exports, the `Module.api` bridge. Shared by both hosts. |
 | `EmulatorFactory` | Produces isolated `Module`s from one bundle (see [WASM runtime](./wasm-runtime.md)). |
 
@@ -35,17 +37,35 @@ const mgr = new VMManager({
 
 | Method | Description |
 |--------|-------------|
-| `await create(id, config)` | Create (don't start) a VM; provisions volumes and wires the net bridge. Returns the `VM`. |
+| `await create(id, config)` | Create (don't start) a VM; provisions volumes and wires the net bridge (none with `hasNetwork: false`). Returns the `VM`. |
+| `getNetwork(name = 'default', options?)` | The `VirtualNetwork` called `name`, made on first use. `mgr.network` is the default one. |
+| `deleteNetwork(name)` | Drop a named network once no VM is on it. |
 | `get(id)` / `getAll()` | Look up handles. |
 | `await start(id)` / `await stop(id)` | Start / stop by id. |
 | `await destroy(id)` | Stop, unregister from the network, detach volumes, forget. |
 | `await destroyAll()` | Destroy every VM. |
-| `getStatus()` | Snapshot `{ vms, network, macTable }` for a dashboard. |
+| `getStatus()` | Snapshot `{ vms, network, macTable, networks }` for a dashboard (`network`/`macTable`: the default network; `networks`: each by name). |
 
-Every VM gets a deterministic MAC from its id (or pass `mac`), a `VMBridgeDevice`
-on the shared `VirtualNetwork`, and — if you pass `volumes` — provisioned browser
-storage. The bridge **learns the guest's real MAC** from outbound frames, so
-unicast from other VMs finds it.
+Every VM with a NIC gets a deterministic placeholder MAC from its id (or pass
+`mac`) and a `VMBridgeDevice` on its `VirtualNetwork`; if you pass `volumes`,
+it gets provisioned browser storage. The bridge **pins the guest's real MAC**
+from its first outbound frame (TinyEMU picks the NIC's MAC at random at boot), so
+unicast from other VMs finds it, and from then on drops frames from any other
+source MAC, or with a source MAC or IPv4 address that belongs to another device
+on the network. A new boot releases the pin.
+
+**One network per project.** A `VirtualNetwork` is one segment: a broadcast
+reaches every VM on it. VMs that must not see each other's traffic (different
+projects, users or tenants) belong on different networks:
+
+```js
+await mgr.create('a1', { configUrl, hasNetwork: true, network: 'project-a' });
+await mgr.create('b1', { configUrl, hasNetwork: true, network: 'project-b' });
+// or pass a VirtualNetwork you made: { network: myNetwork }
+```
+
+Each named network has its own router and DHCP server, made with the manager's
+`network` options. VMs without a `network` share the default one.
 
 ## VM config
 
@@ -55,11 +75,15 @@ Passed to `mgr.create(id, config)`:
 |-------|---------|-------|
 | `configUrl` | — | TinyEMU `.cfg` (kernel + fs0 + eth0): an `http(s)` URL (relative to the page), or a `blob:` or `data:` URL. Files the `.cfg` names are relative to it; a `blob:`/`data:` config has no directory, so its files are relative to the page (in worker mode too). |
 | `configOverride` | — | Changes the `.cfg` before boot: an **object** deep-merged into it, or a **function** `(cfg) => newCfg` (may be async). See [config overrides](#config-overrides). |
-| `mode` | `'worker'` | `'worker'` (off the UI thread, clean stop) or `'inline'` (many VMs, one thread, no worker needed). |
+| `mode` | `'worker'` | `'worker'` (off the UI thread, clean stop), `'inline'` (many VMs, one thread, no worker needed) or `'isolated'` (a worker in a sandboxed frame with no network or storage of its own; see [isolated mode](./runtime.md#isolated-mode)). |
+| `network` | `'default'` | The network to join: a name (see `mgr.getNetwork`) or a `VirtualNetwork`. Ignored with `hasNetwork: false`. |
+| `storage` | `'worker'` | `'page'`: the page opens the volumes' backends and the worker only asks it for keys and bytes ([storage § page-owned](./storage.md#page-owned-storage)). Always so in isolated mode. |
+| `exportFiles` | `false` | `true` passes the engine's exported files on as `export-file` events. Off, the page drops them. |
+| `isolation` | — | Isolated mode only: `{ allow, maxBytes }`: URLs (strings, `'…/'` folders, RegExps or predicates) added to the files the worker may have the page fetch, and the per-response cap (default 256 MiB). |
 | `memoryMB` | the `.cfg`'s `memory_size` | Guest RAM in MiB. Given, it replaces the `.cfg`'s `memory_size` (also one set by `configOverride`). |
 | `cmdline` | `''` | Extra kernel cmdline, appended to the `.cfg`'s. |
 | `napiTxFix` | `true` | With `hasNetwork`, appends `virtio_net.napi_tx=0` to the kernel cmdline. TinyEMU's virtio rings hold 16 buffers, fewer than the 19 free slots Linux's NAPI transmit path waits for, so without it the guest sends one frame and then nothing. `false` leaves the cmdline alone. |
-| `hasNetwork` | — | `true` bridges the NIC to the `VirtualNetwork` and raises carrier. |
+| `hasNetwork` | `true` | `false`: the machine has no NIC, the VM gets no bridge and no network, and the page drops any `net-tx` from its worker. |
 | `cols`, `rows` | `80×24` | Console size reported to the guest. |
 | `width`, `height` | `0` | Framebuffer size (graphics builds). |
 | `mac` | derived from id | `'02:..'` string or `Uint8Array`. |
@@ -153,7 +177,7 @@ Register with `vm.on(event, cb)` (returns an unsubscribe fn) or the shorthands:
 | `onError(cb)` | `error` | `Error` |
 | `onAddress(cb)` | `address` | `string`: the guest's IPv4 address, when first seen or changed |
 | — | `downloading` | `boolean` (asset-fetch indicator) |
-| — | `export-file` | `{ name, file, url }` (guest wrote a file out) |
+| — | `export-file` | `{ name, file, url }` (guest wrote a file out; only with `exportFiles: true`) |
 
 ### Live volume hotplug
 
@@ -182,16 +206,16 @@ vm.toJSON();    // id, state, mac, mode, config summary, stats, volume names
 vm.state;       // current VMState
 ```
 
-## Inline vs worker
+## Inline vs worker vs isolated
 
-| | inline | worker (default) |
-|--|--------|------------------|
-| Thread | current (UI) | dedicated Web Worker |
-| Isolation | own `Module` via closure wrap | own `Module` **and** own thread |
-| Best for | light/console VMs, pages that can't spawn workers, all-in-one-thread debugging | heavy guests — keeps the CPU loop off the UI thread |
-| `stop()` | best-effort (needs C `vm_stop` to fully halt) | clean (worker terminated) |
+| | inline | worker (default) | isolated |
+|--|--------|------------------|----------|
+| Thread | current (UI) | dedicated Web Worker | dedicated Web Worker, in a sandboxed frame |
+| Isolation | own `Module` via closure wrap | own `Module` **and** own thread | also an opaque origin under `connect-src 'none'`: no network, storage, cookies or page DOM |
+| Best for | light/console VMs, pages that can't spawn workers, all-in-one-thread debugging | heavy guests — keeps the CPU loop off the UI thread | configs or guests you don't trust; several users' or projects' VMs on one page |
+| `stop()` | best-effort (needs C `vm_stop` to fully halt) | clean (worker terminated) | clean (frame removed) |
 
-Both are driven by the same `EmulatorEngine`. Switching is just `mode` in the
+All are driven by the same `EmulatorEngine`. Switching is just `mode` in the
 config.
 
 ### Worker message protocol
@@ -200,25 +224,36 @@ config.
 
 ```
 main → worker : start{config} | stdin{data} | net-rx{frame}
-                resize{cols,rows} | pause | resume | stop
+                resize{cols,rows} | pause | resume | flush | stop
+                vol-op{id,op,volName,args} | snapshot{id,options} | stats{id}
+                fetch-reply{id,ok,status,statusText,body|error}
+                store-reply{id,ok,result|error}
 worker → main : booted | stdout{data} | net-tx{frame} | state{state}
                 downloading{flag} | export-file{name,blob} | log{level,text}
-                error{message} | exit
+                error{message} | exit | flushed | stopped
+                vol-reply{id,ok,result|error} | stats-reply{id,ok,stats|error}
+                snapshot-reply{id,ok,buffer,info|error}
+                fetch{id,url,method}     (isolated mode)
+                store{id,vol,op,args}    (page-owned storage)
 ```
 
-Frames are transferred (zero-copy) where possible; the manager copies per-VM on
-fan-out so a broadcast to several workers is safe.
+Frames and snapshots are transferred (zero-copy) where possible; the manager
+copies per-VM on fan-out so a broadcast to several workers is safe. Every
+worker → main message is checked against a fixed table of fields, types and
+sizes (`lib/vm/workerMessages.js`) and dropped if it doesn't fit; a reply must
+answer a request the page made, of the same kind.
 
 ## The network & volume bridge
 
 `VMManager.create` wires each VM automatically:
 
-- guest `net-tx` → `VMBridgeDevice.learnFromGuest` (MAC learning) →
-  `VirtualNetwork.deliverPacket` → switched/flooded to peers;
+- guest `net-tx` → `VMBridgeDevice.acceptFromGuest` (MAC pinning, address
+  checks; a refused frame is dropped) → `VirtualNetwork.deliverPacket` →
+  switched/flooded to peers on the same network;
 - frames the network delivers to that device → `vm.deliverFrame` → guest RX.
 
 You normally don't touch this — just create VMs on one manager and they
-interconnect. Details in [networking](./networking.md).
+interconnect (per network). Details in [networking](./networking.md).
 
 ## See also
 

@@ -76,12 +76,16 @@ jsLab/
 │   │   ├── EmulatorEngine.js   Drives one Module: boot, console/net I/O, Module.api.
 │   │   ├── InlineHost.js       Runs a VM on the main thread (mode: 'inline').
 │   │   ├── WorkerHost.js       Runs a VM in a worker (mode: 'worker', default).
+│   │   ├── IsolatedHost.js     Runs it in a sandboxed frame (mode: 'isolated'), §9.
+│   │   ├── workerMessages.js   What a worker may send the page, checked per message.
+│   │   ├── RequestPolicy.js, PortXHR.js   Isolated mode's file requests, via the page.
 │   │   ├── VM.js               Main-thread handle: lifecycle, events, stats.
-│   │   ├── VMManager.js        Owns many VMs + shared VirtualNetwork + VolumeManager.
+│   │   ├── VMManager.js        Owns many VMs, their VirtualNetworks, a VolumeManager.
 │   │   ├── SnapshotStore.js, snapshot.js   Save / resume a VM.
 │   │   └── vm-worker.js        Module worker; hosts a Module via the same factory/engine.
 │   ├── volumes/               Docker-like persistent storage.
 │   │   ├── index.js, VolumeManager.js, Fs9pStore.js, OverlayBlockStore.js
+│   │   ├── PageStorage.js     Page-owned volume storage (storage: 'page').
 │   │   └── backends/          StorageBackend, IndexedDB, OPFS, FileSystemAccess
 │   └── network/               ✅ Virtual network stack (see §3).
 │       ├── index.js
@@ -311,12 +315,21 @@ gives a 32 MB snapshot, and the VM pauses for about 0.1 s while it is copied.
 ### Worker message protocol
 ```
 main → worker : start {config} | stdin {data} | net-rx {frame}
-                resize {cols,rows} | pause | resume | stop
-                snapshot {id,options}
+                resize {cols,rows} | pause | resume | flush | stop
+                vol-op {id,op,volName,args} | snapshot {id,options} | stats {id}
+                fetch-reply {id,ok,status,statusText,body|error}
+                store-reply {id,ok,result|error}
 worker → main : booted | stdout {data} | net-tx {frame} | state {state}
                 downloading {flag} | export-file {name,blob} | log {level,text}
-                error {message} | exit | snapshot-reply {id,ok,blob,info|error}
+                error {message} | exit | flushed | stopped
+                vol-reply {id,ok,result|error} | stats-reply {id,ok,stats|error}
+                snapshot-reply {id,ok,buffer,info|error}
+                fetch {id,url,method}           (isolated mode)
+                store {id,vol,op,args}          (page-owned storage)
 ```
+Snapshots move as transferred `ArrayBuffer`s in both directions (the start
+config's `snapshot`, the reply's `buffer`); `vm.saveSnapshot()` still returns a
+`Blob`. The page checks every worker → main message before acting on it (§9).
 
 ### Minimal usage
 ```js
@@ -463,3 +476,108 @@ n.waitForDHCP(a).then(()=>n.waitForDHCP(b)).then(async()=>{
    `WebSocketRelayTransport` (internet via a server). 🔴 Remaining: a
    `WebRTCTransport` for peer-to-peer across machines without a relay; a
    fetch-based TCP NAT.
+9. ✅ Hardening (§9): no bridge without a NIC, one network per project, pinned
+   guest addresses, checked worker messages, page-owned storage, the isolated
+   mode, snapshots as transferables.
+
+---
+
+## 9. Trust boundary and isolation
+
+A VM's worker runs the emulator, and the emulator runs whatever the guest and
+its config make it do. jsLab treats everything that comes out of a worker as
+**untrusted input** and keeps the page's decisions on the page.
+
+### What crosses, and who reads it
+
+The page code that handles bytes from a worker, today:
+
+| Code | Lines | Handles |
+|------|------:|---------|
+| `lib/vm/workerMessages.js` | 166 | the shape check every message passes first: type, fields, types, sizes; which types this VM may send |
+| `lib/vm/WorkerHost.js` | 273 | dispatch after the check; matches replies to the requests it made |
+| `lib/vm/VMManager.js` (`VMBridgeDevice`) | ~120 | each guest frame's source MAC / IPv4 / ARP sender, before it is switched |
+| `lib/network/devices/` (`VirtualNetwork`, `NetworkDevice`, `RouterDevice`) | 1,505 | switching, the router: DHCP server, ARP, ICMP, forwarding |
+| `lib/network/packets/` | 1,193 | parsers for Ethernet, IPv4, ARP, UDP, ICMP, DHCP |
+| `lib/network/utils/` | 237 | checksums, address helpers |
+| `lib/volumes/PageStorage.js` | 163 | storage requests: a volume name, an op, keys and bytes, all opaque |
+| `lib/vm/RequestPolicy.js` | 141 | isolated mode: URLs the worker asks the page to fetch |
+| `lib/vm/IsolatedHost.js` | ~30 of 271 | isolated mode: the frame's `ready` / `error` messages |
+
+About **3,800 lines**, most of them the router and the packet parsers: the
+place to review first and to fuzz. Two more consumers sit outside jsLab: the
+embedder's **terminal** gets the guest's console bytes (`vm.onConsole`; xterm.js
+in the demos), and an attached **transport** passes the guest's frames to other
+tabs or a relay, where the same network code reads them.
+
+Through those paths the page:
+
+- **drops what doesn't fit** (`checkWorkerMessage`): a message must be a plain
+  object of a known `type` with exactly that type's fields, each of the right
+  type and size (a frame 14–65,550 bytes, a console chunk ≤ 1 MiB, a log line
+  ≤ 64 KiB, …), and some types need the VM's policy: `net-tx` only with a NIC,
+  `export-file` only with `exportFiles: true` (each one would mint an object
+  URL), `store` only with page-owned storage, `fetch` only in isolated mode. A
+  reply must answer an id the page issued, for the same kind of request. Drops
+  are counted (`vm._host.dropped`) and the first few logged.
+- **gives a VM without a NIC no network** (`hasNetwork: false`): no bridge, no
+  `net-tx` accepted, no `net-rx` sent.
+- **keeps projects apart**: one `VirtualNetwork` per name (`network` config),
+  each its own segment with its own router.
+- **refuses address claims**: the bridge pins its guest's MAC and drops frames
+  that use another device's MAC or IPv4 address ([networking](./networking.md#how-a-real-vm-connects)).
+- **owns the storage** with `storage: 'page'`: the worker names a volume, never a
+  database or a key ([storage](./storage.md#page-owned-storage)).
+
+### Isolated mode
+
+`mode: 'isolated'` (`IsolatedHost`) also takes away what a worker could do on
+its own, without the page:
+
+```
+page ── MessagePort ──▶ classic worker (blob:) ─▶ vm-worker.js (blob: modules) ─▶ TinyEMU
+  │                       ▲
+  └─ <iframe sandbox="allow-scripts" srcdoc>   relays the port, starts the worker
+       CSP: default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'
+            'wasm-unsafe-eval' blob:; worker-src blob:; connect-src 'none'
+```
+
+- The frame is sandboxed without `allow-same-origin`: an **opaque origin**, so
+  no IndexedDB, OPFS, cookies or access to the page.
+- Its CSP comes from a `<meta>` tag, so it needs no response headers (GitHub
+  Pages sends none), and a worker started from a `blob:` URL **inherits** its
+  creator's CSP: `connect-src 'none'` stops `fetch`, XHR (also of `data:` and
+  `blob:` URLs), WebSocket and EventSource in the worker, and `script-src` names
+  no server, so it can't load a script from anywhere either.
+- The page fetches the worker's own modules and sends their source; the worker
+  turns them into `blob:` modules. (A *module* worker from a `blob:` URL can't
+  start in an opaque origin, and browsers block an opaque origin's requests to
+  `localhost` and private networks, so the worker never loads anything itself.)
+- The page fetches the engine (`x86emu-wasm.js` and `.wasm`) and sends it in the
+  start config (`engineSource`, `wasmBinary`).
+- TinyEMU's `lib.js` loads every file (config, kernel, disk chunks) with
+  `XMLHttpRequest`. The worker replaces that global with `PortXHR`, which asks
+  the page; TinyEMU needs no change. The page (`RequestPolicy`) serves only
+  GET/HEAD of `data:` URLs and of URLs on its allowlist, with no credentials or
+  referrer, up to `maxBytes` (default 256 MiB per response, checked while
+  reading). The allowlist is the config URL, the folders of the files the config
+  names, and the base images of block volumes, plus `isolation.allow`:
+
+  ```js
+  await mgr.create('vm1', { configUrl, mode: 'isolated',
+    isolation: { allow: ['https://cdn.example/images/'], maxBytes: 64 << 20 } });
+  ```
+- Volumes are always page-owned; snapshots move as transferred buffers.
+
+Measured with Alpine 3.20 (riscv64): it boots and gets a DHCP lease as in
+worker mode (41 file requests through the page), and a 26.5 MB snapshot saves
+and resumes (0.6 s) across the port. Workers can't be tested in Node, so
+`tests/security.test.mjs` covers the parts around them (the message checks,
+`RequestPolicy`, `PortXHR`, `PageStorage` over a real `MessageChannel`), and
+the frame itself was checked in Chromium: in the worker `fetch`, XHR and
+IndexedDB fail while `new Function` and WebAssembly work.
+
+Not covered by the isolation: CPU and memory (a guest can still use a core
+and its RAM; stop it with `vm.stop()`), and whatever the page does with what
+it is given (the console bytes, the frames on the network, the files fetched
+for the worker).

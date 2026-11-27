@@ -10,7 +10,7 @@ and resumed. Nothing runs on a server.
 
 | Path | What |
 |---|---|
-| `lib/vm/` | `VMManager`, `VM`, the engine wrapper (`EmulatorFactory`, `EmulatorEngine`), inline and worker hosts, snapshots (`SnapshotStore`) |
+| `lib/vm/` | `VMManager`, `VM`, the engine wrapper (`EmulatorFactory`, `EmulatorEngine`), inline, worker and isolated (sandboxed-frame) hosts, the checks on what a worker sends ([trust boundary](docs/runtime.md#9-trust-boundary-and-isolation)), snapshots (`SnapshotStore`) |
 | `lib/volumes/` | `VolumeManager`, 9P file volumes (`Fs9pStore`), copy-on-write block disks (`OverlayBlockStore`), storage backends (IndexedDB, OPFS, File System Access) |
 | `lib/network/` | the virtual network: devices, packets (Ethernet, IP, ARP, DHCP, UDP, ICMP), transports (BroadcastChannel, WebSocket relay) |
 | `lib/linux.js` | a simple single-VM bootstrap (xterm.js + the engine) |

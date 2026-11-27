@@ -201,11 +201,31 @@ networks share a segment:
 
 ## How a real VM connects
 
-`VMManager` creates one `VMBridgeDevice` per VM and overrides its packet path:
+`VMManager` creates one `VMBridgeDevice` per VM with a NIC (none with
+`hasNetwork: false`) and overrides its packet path:
 
-- guest emits a frame (`net-tx`) → `learnFromGuest` (MAC learning) →
+- guest emits a frame (`net-tx`) → `acceptFromGuest` (address checks, below) →
   `VirtualNetwork.deliverPacket` → switched to the target (or flooded);
 - a frame destined for that guest → `vm.deliverFrame` → guest RX queue.
+
+**Which network.** Each VM joins the manager's default network, or the one
+named by its `network` config (`mgr.getNetwork(name)`, made on first use with
+the manager's network options). Networks share nothing: a frame never crosses
+from one to another, so give each project (user, tenant) its own.
+
+**Address checks.** TinyEMU gives the NIC a random MAC at boot, so the bridge
+can't know it up front: it **pins** the source MAC of the guest's first frame,
+unless another device on the network (another VM, the router) already answers
+to it. After that it drops a guest frame when
+
+- its source MAC isn't the pinned one, is a group address, or is all-zero;
+- its IPv4 source address, or an ARP packet's sender address, belongs to another
+  device, or is the router's (gateway, DNS); `0.0.0.0` (DHCP, ARP probes) is fine;
+- an ARP packet's sender MAC isn't the pinned one.
+
+The count is `vm.netDevice.refused`. A new boot (`starting`) releases the pin
+and the address. A guest can still use a free static address; the DHCP server's
+leases are recorded on the bridge, so another guest can't take one in use.
 
 The guest kernel runs its own DHCP/ARP/ICMP; the software `VMDevice` stack is
 **not** used for bridged VMs (it exists only for pure-JS test peers).
@@ -228,4 +248,6 @@ server. Then VMs can `ping`/talk.
 - Node self-test (two software VMs ping): see [getting-started](./getting-started.md#quick-network-self-test-no-browser).
 - Regression suite: `node tests/network-fixes.test.mjs` (router single-delivery,
   MAC learning, DHCP IP recording, multi-transport mirror/echo rules).
+- Isolation: `node --test tests/security.test.mjs` (NIC-less VMs, one network
+  per project, refused address claims).
 </content>

@@ -217,6 +217,36 @@ backend, so subsequent boots see your changes. Implemented entirely in JS
 (`block_js.c`) and `js_block_*` bindings are reused unchanged. Covered by
 `node tests/overlay-block.test.mjs`.
 
+## Page-owned storage
+
+By default a VM's worker opens its volumes' backends itself, from the specs it
+is given. That puts the choice of storage in the worker: one that ran other
+code could open any IndexedDB database or OPFS file of the origin, every other
+project's volumes included. With `storage: 'page'` in the VM config (always so in
+[isolated mode](./runtime.md#isolated-mode)) the page owns the storage instead:
+
+```js
+const vm = await mgr.create('vm1', {
+  configUrl, storage: 'page',
+  volumes: [{ name: 'data', backend: 'indexeddb', storageKey: 'project-1/data', mountpoint: '/mnt/data' }],
+});
+```
+
+- The page opens each volume's backend from **its** copy of the spec
+  ([PageStorage.js](../lib/volumes/PageStorage.js)). The worker is told only
+  `{ name, type, backend: 'page', mountpoint }`: no backend, no storage key.
+- In the worker, each volume's backend is a `PortBackend`: every call
+  (`readFile`, `writeFile`, `readSectors`, …) goes to the page as
+  `store { id, vol, op, args }` and waits for the reply.
+- The page serves a request only for a volume it configured, and only an op
+  and arguments on a fixed list (`STORE_OPS` in `lib/vm/workerMessages.js`);
+  keys and contents are opaque to it. It never parses the filesystem's records:
+  the 9p tree (`Fs9pStore`) is still built and read in the worker.
+- Data crosses the port as transferred buffers, so there is no extra copy.
+
+Nothing else changes: the guest's I/O, the hotplug calls and the on-disk layout
+are the same, so a volume can move between the two modes.
+
 ## See also
 
 - [VM runtime](./vm.md) — passing `volumes` to `create()`.
